@@ -11,6 +11,29 @@
             <h1>Admin Panel</h1>
         </div>
         <div class="tos">
+            <h2>Primary Domain</h2>
+            {{if .PrimaryDomain}}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Domain</th>
+                            <th>Link Timeout (Len 1)</th>
+                            <th>Static Links</th>
+                            <th>Manage</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>{{.PrimaryDomain}} <small>(Default Settings)</small></td>
+                            <td>{{.Defaults.LinkLen1Timeout}}</td>
+                            <td>{{len .Defaults.StaticLinks}}</td>
+                            <td><a href="/admin/edit?domain={{.PrimaryDomain}}" class="edit-button">Configure</a></td>
+                        </tr>
+                    </tbody>
+                </table>
+            {{end}}
+        </div>
+        <div class="tos">
             <h2>Configured Subdomains</h2>
             {{if .Subdomains}}
                 <table>
@@ -34,7 +57,7 @@
                                 <form method="POST" action="/admin">
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="subdomain" value="{{$domain}}">
-                                    <input type="submit" value="Delete" class="delete-button">
+                                    <input type="submit" value="Delete" class="delete-button" {{if eq $domain $.PrimaryDomain}}disabled{{end}}>
                                 </form>
                             </td>
                         </tr>

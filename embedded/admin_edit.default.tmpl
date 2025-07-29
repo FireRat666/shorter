@@ -12,6 +12,7 @@
         </div>
         <div class="tos">
             <form class="admin-form" method="POST" action="/admin/edit?domain={{.Domain}}">
+                <input type="hidden" name="action" value="update_config">
                 <input type="hidden" name="subdomain" value="{{.Domain}}">
 
                 <label for="link_len1_timeout">Timeout (Len 1):</label>

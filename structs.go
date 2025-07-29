@@ -104,8 +104,9 @@ type errorPageVars struct {
 
 // adminPageVars holds the data needed to render the admin page.
 type adminPageVars struct {
-	Subdomains map[string]SubdomainConfig
-	Defaults   SubdomainConfig
+	Subdomains    map[string]SubdomainConfig
+	Defaults      SubdomainConfig
+	PrimaryDomain string
 }
 
 // adminEditPageVars holds the data for the subdomain edit page.

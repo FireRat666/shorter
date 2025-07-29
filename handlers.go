@@ -252,10 +252,24 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prepare the data for the admin page template.
+	// Determine the primary domain from the main config.
+	var primaryDomain string
+	if len(config.DomainNames) > 0 {
+		primaryDomain = config.DomainNames[0]
+	}
+
+	// Create a map for display that explicitly excludes the primary domain.
+	displaySubdomains := make(map[string]SubdomainConfig)
+	for domain, subConfig := range config.Subdomains {
+		if domain != primaryDomain {
+			displaySubdomains[domain] = subConfig
+		}
+	}
+
 	pageVars := adminPageVars{
-		Subdomains: config.Subdomains,
-		Defaults:   config.Defaults,
+		Subdomains:    displaySubdomains,
+		Defaults:      config.Defaults,
+		PrimaryDomain: primaryDomain,
 	}
 
 	if err := adminTmpl.Execute(w, pageVars); err != nil {
@@ -271,12 +285,6 @@ func handleAdminCreateSubdomain(w http.ResponseWriter, r *http.Request) {
 	if subdomainName == "" {
 		logErrors(w, r, "Subdomain name cannot be empty.", http.StatusBadRequest, "Admin submitted empty subdomain name")
 		return
-	}
-
-	// Add a hidden action field to the form so the handler knows what to do.
-	if r.FormValue("action") == "" {
-		// This is a hack to make the existing form work without modification.
-		r.Form.Set("action", "update_config")
 	}
 
 	// Parse form values into a config struct.
@@ -304,6 +312,12 @@ func handleAdminDeleteSubdomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// As a safeguard, prevent the primary domain from being deleted.
+	if len(config.DomainNames) > 0 && subdomainName == config.DomainNames[0] {
+		logErrors(w, r, "Cannot delete the primary domain.", http.StatusBadRequest, "Attempted to delete primary domain")
+		return
+	}
+
 	// Remove the subdomain from the database.
 	if err := deleteSubdomainFromDB(r.Context(), subdomainName); err != nil {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete subdomain from database: "+err.Error())
@@ -326,12 +340,18 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// First, confirm that the subdomain is actually configured.
-		_, ok := config.Subdomains[domain]
-		if !ok {
+		// Confirm that the domain is either the primary domain or a configured subdomain.
+		var isPrimaryDomain bool
+		if len(config.DomainNames) > 0 && domain == config.DomainNames[0] {
+			isPrimaryDomain = true
+		}
+		_, isSubdomain := config.Subdomains[domain]
+
+		if !isPrimaryDomain && !isSubdomain {
 			logErrors(w, r, "Subdomain not found.", http.StatusNotFound, "Admin tried to edit non-existent subdomain: "+domain)
 			return
 		}
+
 		// Get the fully merged configuration for this domain to pre-fill the form correctly.
 		subdomainCfg := getSubdomainConfig(domain)
 
