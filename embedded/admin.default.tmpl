@@ -19,6 +19,7 @@
                             <th>Subdomain</th>
                             <th>Link Timeout (Len 1)</th>
                             <th>Static Links</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -27,6 +28,13 @@
                             <td>{{$domain}}</td>
                             <td>{{$config.LinkLen1Timeout}}</td>
                             <td>{{len $config.StaticLinks}}</td>
+                            <td>
+                                <form method="POST" action="/admin" style="display: inline;">
+                                    <input type="hidden" name="action" value="delete">
+                                    <input type="hidden" name="subdomain" value="{{$domain}}">
+                                    <input type="submit" value="Delete" class="delete-button">
+                                </form>
+                            </td>
                         </tr>
                         {{end}}
                     </tbody>
@@ -38,6 +46,7 @@
         <div class="tos">
             <h2>Create New Subdomain</h2>
             <form class="admin-form" method="POST" action="/admin">
+                <input type="hidden" name="action" value="create">
                 <label for="subdomain">Subdomain Name:</label>
                 <input type="text" id="subdomain" name="subdomain" class="inputbox" placeholder="user1.your-app.com" required>
 
@@ -46,7 +55,7 @@
 
                 <!-- More fields for other settings can be added here -->
 
-                <input type="submit" value="Create Subdomain">
+                <input type="submit" value="Create Subdomain" class="admin-submit-button">
             </form>
         </div>
     </div>
