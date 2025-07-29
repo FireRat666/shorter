@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -46,11 +47,70 @@ func setupDB(databaseURL string) error {
 		created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 	);`
 
-	_, err = db.ExecContext(ctx, schema)
-	if err != nil {
+	if _, err = db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
+
+	// Create the subdomain_configs table if it doesn't already exist.
+	// The config column uses JSONB for efficient storage and querying of JSON data.
+	schemaSubdomains := `
+	CREATE TABLE IF NOT EXISTS subdomain_configs (
+		domain TEXT PRIMARY KEY,
+		config JSONB NOT NULL
+	);`
+
+	if _, err = db.ExecContext(ctx, schemaSubdomains); err != nil {
+		return fmt.Errorf("failed to create subdomain_configs schema: %w", err)
+	}
+
 	return nil
+}
+
+// loadSubdomainsFromDB retrieves all subdomain configurations from the database.
+func loadSubdomainsFromDB(ctx context.Context) (map[string]SubdomainConfig, error) {
+	query := `SELECT domain, config FROM subdomain_configs;`
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query subdomain configs: %w", err)
+	}
+	defer rows.Close()
+
+	subdomains := make(map[string]SubdomainConfig)
+	for rows.Next() {
+		var domain string
+		var configJSON []byte
+		var subConfig SubdomainConfig
+
+		if err := rows.Scan(&domain, &configJSON); err != nil {
+			return nil, fmt.Errorf("failed to scan subdomain config row: %w", err)
+		}
+
+		if err := json.Unmarshal(configJSON, &subConfig); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal subdomain config for %s: %w", domain, err)
+		}
+		subdomains[domain] = subConfig
+	}
+
+	return subdomains, rows.Err()
+}
+
+// saveSubdomainConfigToDB saves a single subdomain's configuration to the database.
+// It performs an "upsert" operation: inserting a new record or updating an existing one.
+func saveSubdomainConfigToDB(ctx context.Context, domain string, subConfig SubdomainConfig) error {
+	configJSON, err := json.Marshal(subConfig)
+	if err != nil {
+		return fmt.Errorf("failed to marshal subdomain config to JSON: %w", err)
+	}
+
+	// Use an "upsert" query to either insert a new subdomain or update an existing one.
+	// The ON CONFLICT clause handles the case where the domain (primary key) already exists.
+	query := `
+		INSERT INTO subdomain_configs (domain, config)
+		VALUES ($1, $2)
+		ON CONFLICT (domain) DO UPDATE SET config = EXCLUDED.config;`
+
+	_, err = db.ExecContext(ctx, query, domain, configJSON)
+	return err
 }
 
 // createLinkInDB inserts a new link record into the database.
