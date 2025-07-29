@@ -19,7 +19,8 @@
                             <th>Subdomain</th>
                             <th>Link Timeout (Len 1)</th>
                             <th>Static Links</th>
-                            <th>Actions</th>
+                            <th>Edit</th>
+                            <th>Delete</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -28,9 +29,9 @@
                             <td>{{$domain}}</td>
                             <td>{{$config.LinkLen1Timeout}}</td>
                             <td>{{len $config.StaticLinks}}</td>
+                            <td><a href="/admin/edit?domain={{$domain}}" class="edit-button">Edit</a></td>
                             <td>
-                                <a href="/admin/edit?domain={{$domain}}" class="edit-button">Edit</a>
-                                <form method="POST" action="/admin" style="display: inline;">
+                                <form method="POST" action="/admin">
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="subdomain" value="{{$domain}}">
                                     <input type="submit" value="Delete" class="delete-button">
