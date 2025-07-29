@@ -1,8 +1,8 @@
-[![Go Report Card](https://goreportcard.com/badge/github.com/7i/shorter)](https://goreportcard.com/report/github.com/7i/shorter)
+[![Go Report Card](https://goreportcard.com/badge/github.com/FireRat666/shorter)](https://goreportcard.com/report/github.com/FireRat666/shorter)
 ![Linux](https://img.shields.io/badge/Supports-Linux-green.svg)
 ![windows](https://img.shields.io/badge/Supports-windows-green.svg)
-[![License](https://img.shields.io/badge/License-UNLICENSE-blue.svg)](https://raw.githubusercontent.com/7i/shorter/master/UNLICENSE)
-[![License](https://img.shields.io/badge/License-0BSD-blue.svg)](https://raw.githubusercontent.com/7i/shorter/master/LICENSE)
+[![License](https://img.shields.io/badge/License-UNLICENSE-blue.svg)](https://raw.githubusercontent.com/FireRat666/shorter/master/UNLICENSE)
+[![License](https://img.shields.io/badge/License-0BSD-blue.svg)](https://raw.githubusercontent.com/FireRat666/shorter/master/LICENSE)
 # shorter
 URL shortener with pastebin and file upload functions
 
@@ -13,69 +13,86 @@ This project is a *work in progress*. The implementation is *incomplete* and sub
 
 If you want to try to run shorter, please set your correct values in the config before starting the server.
 
-Shortened links on the pre alpha version test site 7i.se will be cleared from time to time during testing without notice.
+Shortened links on the pre alpha version test site s.firer.at will be cleared from time to time during testing without notice.
 
 ## Installation
 
 ```bash
-go get github.com/7i/shorter
+go get github.com/FireRat666/shorter
 ```
 
 ## Usage
 
+To run the application locally, ensure you have a shorterdata/config.yaml file configured for your local environment. Then, from the root of the project, run:
+
 ```bash
-shorter /path/to/config
+    go run .
 ```
 
-## Examples
-A deployed version of shorter is accessable at [7i.se](http://7i.se)
+The application will automatically find the `shorterdata` directory and start the server.
 
-create a temporary link to "https://www.example.com" via a GET request that is as short as possible:
-```bash
-7i.se?https://www.example.com
-or
-7i.se/?https://www.example.com
-```
-create a temporary link to "https://www.example.com" via a GET request using the key "KeyToExample":
-```bash
-7i.se/KeyToExample?https://www.example.com
-or
-7i.se/KeyToExample/?https://www.example.com
-```
+### Quick Add Feature
 
-## TODO
-- [x] Implement shortening of URLs
-   - [x] 1 char long - configurabe timeout
-   - [x] 2 chars long - configurabe timeout
-   - [x] 3 chars long - configurabe timeout
-   - [x] make timeouts configurable
-   - [x] temporary word bindings (7i.se/coolthing)
-   - [x] quick add link via get request with syntax 7i.se?https://example.com
-   - [x] quick add word bindings link via get request with syntax 7i.se/coolthing?https://example.com where coolthing is the key
-   - [ ] optional removal of link after N accesses
-- [x] Add functionality to print where a link is pointing by adding ~ at the end of the link e.g. 7i.se/a~ will display where 7i.se/a is pointing to
-- [x] Add config file that specifies relevant options
-- [x] Pastebin functionality with same timeouts as above
-- [x] Move to ssl with Let's Encrypt
-- [ ] Save all active links in a database file instead of gob files 
-- [ ] Add support for subdomains with diffrent configs e.g. d1.7i.se
-   - [ ] Add password/client cert protected subdomain management e.g. d1.7i.se/admin
-   - [ ] Let the user managing a subdomain specify generic links and set timeouts, including "no timeout" for the shortened links, text-blobs and files.
-- [x] Enable CSP
-   - [x] Move all js and css to seperate files and modify html/template files to use these
-   - [ ] Setup a CSP report collector
-- [ ] Use blocklists for known malware sites, integrate with:
-   - [ ] https://www.stopbadware.org/firefox
-   - [ ] https://www.malwaredomainlist.com
-   - [ ] https://isc.sans.edu/suspicious_domains.html
-   - [ ] https://zeltser.com/malicious-ip-blocklists/
-   - [ ] if linking to a page that redirects, follow redirects only for 5 levels and display error if redirected more times
-- [ ] Include report form to take down links that breaks terms of usage
-   - [ ] implement capcha for submitting reports to take down links
-- [x] Create Terms of usage
+You can quickly create a short, random-key link by making a GET request to the root of the service with the URL to shorten as the query string. This will create a link with the shortest default timeout (as configured in `config.yaml`). **Note**: This method does not support custom keys.
+
+For a service running at `shorter.example.com`, you can use `curl` or your browser:
+
+    curl "https://shorter.example.com/?https://www.google.com"
+
+The service will respond with a page showing the newly created short link.
+
+## Deployment on Render
+This application is designed to be easily deployed as a Web Service on Render.
+
+### 1. Fork the Repository
+First, fork this repository to your own GitHub account.
+
+### 2. Create a PostgreSQL Database
+1.  From your Render dashboard, create a new **PostgreSQL** database.
+2.  Give it a name (e.g., `shorter-db`).
+3.  Once the database is created, find the **Internal Database URL** under the "Connect" section. You will need this for the next step.
+
+### 3. Create a Web Service
+1.  From your Render dashboard, create a new **Web Service**.
+2.  Connect the GitHub repository you forked.
+3.  Render should automatically detect that this is a Go project. Use the following settings:
+    *   **Build Command**: `go build .`
+    *   **Start Command**: `./shorter`
+
+### 4. Configure Environment Variables
+In your Web Service's "Environment" tab, add the following environment variables. It's important to set these as secrets.
+
+*   `DATABASE_URL`:
+    *   **Value**: Paste the **Internal Database URL** you copied from your PostgreSQL instance in step 2.
+*   `LOG_SEP`:
+    *   **Value**: This should be a long, random, secret string. You can generate one locally using a command like `openssl rand -hex 16`.
+
+*   `SHORTER_DOMAINS`:
+    *   **Value**: A comma-separated list of the domains your service will run on. For a new Render service, this would be your `onrender.com` URL (e.g., `shorter-app.onrender.com`). If you add a custom domain later, you can add it here (e.g., `shorter-app.onrender.com,s.example.com`).
+
+Render will automatically set the `PORT` environment variable, which the application is configured to use.
+
+### 5. Deploy
+With the configuration and environment variables set, you can trigger your first deployment. The application will start, connect to the database, and be available at your Render URL.
+
+## Completed Features
+*   URL Shortening with configurable timeouts for different key lengths.
+*   Custom vanity keys for links.
+*   Secure text pastebin functionality.
+*   Link usage limits (remove after N accesses).
+*   Link inspection by appending `~` to a key.
+*   PostgreSQL backend for persistent storage.
+*   Designed for modern deployment (e.g., Render) with environment variable support for secrets.
+*   Customizable theming via external template files.
+*   Strict Content Security Policy (CSP) with a violation reporting endpoint.
+*   Subdomain Management with per-domain configuration overrides.
+*   **Malware Protection**: Integrated with DNS-based blocklists (DNSBL) to prevent shortening of malicious URLs, using the service from [blocklist.de](https://www.blocklist.de/en/rbldns.html).
+
+## Future Ideas
+*   **Advanced Subdomain Management**: Create a secure admin interface (e.g., `/admin`) for managing subdomain configurations and links.
+*   **Abuse Reporting**: Add a form, protected by a captcha, for users to report links that violate the Terms of Service.
 
 
 ## License
 
 The `shorter` project is dual-licensed to the [public domain](UNLICENSE) and under a [zero-clause BSD license](LICENSE). You may choose either license to govern your use of `shorter`.
-

@@ -2,6 +2,7 @@
 <html lang="en">
 
 <head>
+   <meta name="color-scheme" content="dark">
    <link rel="stylesheet" type="text/css" href="shorter.css">
 </head>
 
@@ -9,7 +10,8 @@
    <div class="content">
       <div class="tos">Temporary link:<br>
          <H1><a href="{{.Data}}">{{.Data}}</a></H1><br>
-         This link will be removed {{.Timeout}}
+         This link will be removed on {{.Timeout}}.
+         {{if gt .TimesAllowed 0}}<br>It can be viewed {{.RemainingUses}} more time(s).{{end}}
       </div>
       <div class="info">Please only navigate to the link if you trust the person that generated the link.</div>
       <div class="tos">To create your own temporary links please visit <a href="{{.Domain}}">{{.Domain}}</a></div>

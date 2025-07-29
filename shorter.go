@@ -1,122 +1,144 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
+	"strings"
 
 	"github.com/kr/pretty"
 	yaml "gopkg.in/yaml.v2"
 )
 
+var config Config
+var slogger *slog.Logger
+
 func main() {
 	var conf []byte
 	var err error
-	// accept if we specify the path to the config directly without a flag, e.g. shorter /path/to/config
-	if len(os.Args) == 2 {
-		conf, err = ioutil.ReadFile(os.Args[1])
+
+	// --- Configuration Loading ---
+	// This logic establishes a clear priority for loading configuration:
+	// 1. A local, gitignored 'shorterdata/Config' file for development secrets.
+	// 2. A public, checked-in 'shorterdata/config.yaml' file for default settings.
+
+	localConfigPath := filepath.Join("shorterdata", "Config")
+	defaultConfigPath := filepath.Join("shorterdata", "config.yaml")
+
+	// Try to load the local override first.
+	conf, err = os.ReadFile(localConfigPath)
+	if err != nil {
+		// If local override fails, log it and fall back to the default public config.
+		log.Printf("Local config override not found at '%s'. Falling back to default config.", localConfigPath)
+		conf, err = os.ReadFile(defaultConfigPath)
 		if err != nil {
-			log.Fatalln("Invalid config file:\n", err)
+			log.Fatalf("Failed to read both local config (%s) and default config (%s): %v", localConfigPath, defaultConfigPath, err)
 		}
+		log.Printf("Successfully loaded default config from '%s'", defaultConfigPath)
 	} else {
-		// Parse command line arguments.
-		var confFile string // confDir specifies the path to config file.
-		flag.StringVar(&confFile, "config", filepath.Join(".", "config"), "path to the config file")
-		flag.Parse()
-		conf, err = ioutil.ReadFile(confFile)
-		if err != nil {
-			configPath := findFolderDefaultLocations("shorterdata")
-			if configPath != "" {
-				conf, err = ioutil.ReadFile(filepath.Join(configPath, "config"))
-				if err != nil {
-					log.Fatalln("Invalid config file:\n", err)
-				}
-			}
-		}
+		log.Printf("Successfully loaded local config override from '%s'", localConfigPath)
 	}
 
 	// Populate the global config variable with the data from the config file
-	if err := yaml.UnmarshalStrict(conf, &config); err != nil {
+	if err = yaml.UnmarshalStrict(conf, &config); err != nil {
 		log.Fatalln("Unable to parse config file:\n", err)
 	}
 
-	// if BaseDir is not specified in the config search for a directory named shorterdata in the current directory and if not found search for a directory "src/github.com/7i/shorter/shorterdata" under all paths specified in GOPATH
-	if config.BaseDir == "" {
-		dataPath := findFolderDefaultLocations("shorterdata")
-		if dataPath != "" {
-			config.BaseDir = dataPath
-		} else {
-			log.Fatalln("Unable to locate a valid BaseDir, please specify BaseDir in the shorter config file")
+	// --- START: Render Compatibility ---
+	// On Render, the port is specified by the PORT environment variable.
+	if renderPort := os.Getenv("PORT"); renderPort != "" {
+		config.AddressPort = "0.0.0.0:" + renderPort
+	}
+
+	// On Render, the database URL is provided as an environment variable for security.
+	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+		config.DatabaseURL = dbURL
+	}
+
+	// On Render, the log separator can be provided as an environment variable for security.
+	if logSep := os.Getenv("LOG_SEP"); logSep != "" {
+		config.LogSep = logSep
+	}
+
+	// On Render, domain names can be provided as a comma-separated environment variable.
+	if domainsStr := os.Getenv("SHORTER_DOMAINS"); domainsStr != "" {
+		domains := strings.Split(domainsStr, ",")
+		// Trim whitespace from each domain to handle "domain1, domain2" correctly.
+		for i := range domains {
+			domains[i] = strings.TrimSpace(domains[i])
 		}
+		config.DomainNames = domains
+	}
+	// --- END: Render Compatibility ---
+
+	// If BaseDir is not specified in the config, automatically find the 'shorterdata' directory.
+	if config.BaseDir == "" {
+		dataPath, err := findDataDir("shorterdata")
+		if err != nil {
+			log.Fatalf("Unable to locate 'shorterdata' directory: %v. Please specify BaseDir in the config file or place 'shorterdata' next to the executable.", err)
+		}
+		config.BaseDir = dataPath
 	}
 
 	if config.Logging {
-		// logSep is set to a 128bit random string together with the configured config.LogSep string that is used as a log entry separator
-		randomSep := make([]byte, 8)
-		n, err := rand.Read(randomSep)
-		if n != 8 || err != nil {
-			time.Sleep(2 * time.Second)
-			n, err = rand.Read(randomSep)
-			if n != 8 || err != nil {
-				log.Fatalln("Faild to initiate random separator")
-			}
-		}
-		logSep = "[" + hex.EncodeToString(randomSep) + "-" + config.LogSep + "]"
-
-		var f *os.File
+		var logWriter *os.File
 		if config.Logfile != "" {
-			f, err = os.OpenFile(config.Logfile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			logWriter, err = os.OpenFile(config.Logfile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		} else {
-			f, err = os.OpenFile(filepath.Join(config.BaseDir, "shorter.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			logWriter, err = os.OpenFile(filepath.Join(config.BaseDir, "shorter.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		}
 		if err != nil {
-			log.Println(err)
-			logger = nil
+			log.Println("Failed to open log file, logging disabled:", err)
 		} else {
-			defer f.Close()
-			// Write out server config on startup if logging is enabled
-			f.WriteString("Loaded config:\n" + fmt.Sprintf("%# v", pretty.Formatter(config)) + "\nLog Separator: " + logSep + "\n")
-			logger = log.New(f, logSep+"\n", log.LstdFlags)
+			// Use a more readable JSON handler for structured logs.
+			handler := slog.NewJSONHandler(logWriter, &slog.HandlerOptions{
+				Level: slog.LevelDebug, // Changed to Debug to see all check messages
+			})
+			slogger = slog.New(handler)
+			slogger.Info("Logger initialized")
+
+			// Create a redacted config for logging to avoid leaking secrets.
+			loggedConfig := config
+			if loggedConfig.DatabaseURL != "" {
+				loggedConfig.DatabaseURL = "[REDACTED]"
+			}
+			loggedConfig.LogSep = "[REDACTED]"
+			slogger.Info("Loaded config", "config", fmt.Sprintf("%# v", pretty.Formatter(loggedConfig)))
 		}
 	}
 
-	// init linkLen1, linkLen2, linkLen3 and fill each freeMap with all valid keys for each len. Defined in misc.go
-	initLinkLens()
+	// Connect to the database and create schema if it doesn't exist.
+	err = setupDB(config.DatabaseURL)
+	if err != nil {
+		log.Fatalln("Database setup failed:", err)
+	}
 
-	// TODO: find better solution, maybe waitgroup so all TimeoutManager have started before starting the server
-	time.Sleep(time.Millisecond * 500)
-
-	setupDB()
-	go BackupRoutine()
-
-	// TODO: find better solution, maybe waitgroup
-	time.Sleep(time.Millisecond * 500)
+	initResolver()
 
 	initTemplates()
 
+	initImages()
+
 	mux := http.NewServeMux()
 
-	handleCSS(mux)    // defined in handlers.go
-	handleImages(mux) // defined in handlers.go
-	handleRobots(mux) // defined in handlers.go
-	handleRoot(mux)   // defined in handlers.go
+	if err := handleCSS(mux); err != nil {
+		log.Fatalln(err)
+	}
+	handleJS(mux)                                  // defined in handlers.go
+	handleImages(mux)                              // defined in handlers.go
+	mux.HandleFunc("/csp-report", handleCSPReport) // defined in handlers.go
+	handleRobots(mux)                              // defined in handlers.go
+	handleRoot(mux)                                // defined in handlers.go
 
 	// Start server
-	if logger != nil {
-		logger.Println("Starting server")
+	startupMsg := fmt.Sprintf("Starting server on %s", config.AddressPort)
+	if slogger != nil {
+		slogger.Info(startupMsg)
+	} else {
+		log.Println(startupMsg)
 	}
-	// if NoTLS is set only start a http server
-	if config.NoTLS {
-		log.Fatalln(http.ListenAndServe(config.AddressPort, mux))
-	}
-	server := getServer(mux) // defined in letsencrypt.go
-	// Using LetsEncrypt, no premade cert and key files needed
-	log.Fatalln(server.ListenAndServeTLS("", ""))
+	log.Fatalln(http.ListenAndServe(config.AddressPort, mux))
 }

@@ -3,9 +3,10 @@ html, body {
 }
 
 body {
+	color:#fff;
     margin: 0px;
     font-family: 'Roboto', sans-serif;
-    background-color: #fafafa;
+    background-color: #000000;
 }
 
 .header {
@@ -32,8 +33,9 @@ body {
 }
 
 .content > * {
-    background-color: #fff;
-    box-shadow: 1px 1px 4px grey;
+	color:#fff;
+    background-color: #2f2f2f47;  
+	outline: #00ff00 solid 0.1em;
     max-width: inherit;
     box-sizing: border-box;
 }
@@ -96,13 +98,15 @@ select {
 }
 
 textarea {
+	color:#fff;
     width: 100%;
     margin: 8px 0;
     display: inline-block;
-    border: 1px solid #ccc;
+    border: 1px solid #00ff00;
     border-radius: 4px;
     box-sizing: border-box;
     font-family: 'Roboto', sans-serif;
+    background-color: #20202080;
 }
 
 input[type=submit], .file-upload {
@@ -179,3 +183,18 @@ input[id="ToS"]:checked~#ToSDiv {
     display: grid;
 }
 
+.text-dump-box {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+}
+
+.copy-button {
+    margin-top: 8px;
+}
+
+/* Constrain the width of the number input for "Max Uses" */
+.inputbox[type=number] {
+    width: 10em;
+    justify-self: start; /* Prevents the input from stretching to fill the grid cell */
+}

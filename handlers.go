@@ -3,12 +3,12 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"html"
-	"io/ioutil"
-	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -45,6 +45,9 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get the specific configuration for the requested host.
+	subdomainCfg := getSubdomainConfig(r.Host)
+
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
@@ -54,138 +57,155 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		err := r.ParseMultipartForm(config.MaxFileSize)
 		if err != nil {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Error: "+url.QueryEscape(err.Error()))
+			logErrors(w, r, errServerError, http.StatusBadRequest, "Error parsing form: "+url.QueryEscape(err.Error()))
 			return
 		}
 
-		// Get length of key to be used
+		// Determine link expiration and key length based on the selected form option
 		length := r.Form.Get("len")
-		var currentLinkLen *LinkLen
+		var linkTimeout time.Duration
+		var keyLength int
 		switch length {
 		case "1":
-			currentLinkLen = &domainLinkLens[r.Host].LinkLen1
+			linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen1Timeout)
+			keyLength = config.LinkLen1
 		case "2":
-			currentLinkLen = &domainLinkLens[r.Host].LinkLen2
+			linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen2Timeout)
+			keyLength = config.LinkLen2
 		case "3":
-			currentLinkLen = &domainLinkLens[r.Host].LinkLen3
+			linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen3Timeout)
+			keyLength = config.LinkLen3
 		case "custom":
-			currentLinkLen = &domainLinkLens[r.Host].LinkCustom
+			linkTimeout, err = time.ParseDuration(subdomainCfg.CustomTimeout)
+			keyLength = 0 // Custom key, length is variable
 		default:
 			logErrors(w, r, errServerError, http.StatusInternalServerError, "Error: Invalid len argument.")
 			return
 		}
 
-		// Get how many times the link can be used before becoming invalid, -1 represents no limit
-		xTimes, err := strconv.Atoi(r.Form.Get("xTimes"))
-		if err != nil || xTimes < 1 {
-			xTimes = -1
-		} else if xTimes > config.LinkAccessMaxNr {
-			xTimes = config.LinkAccessMaxNr
+		if err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Error parsing link timeout duration: "+err.Error())
+			return
 		}
 
 		// Check if request is a custom key request and report error if it is invalid
 		customKey := ""
 		if length == "custom" {
 			customKey = r.Form.Get("custom")
-			if !validate(customKey) || len(customKey) < 4 || len(customKey) > maxKeyLen {
-				logErrors(w, r, errInvalidCustomKey, http.StatusInternalServerError, "")
+			if !validate(customKey) || len(customKey) < 4 || len(customKey) > config.MaxKeyLen {
+				logErrors(w, r, errInvalidCustomKey, http.StatusBadRequest, "Invalid custom key.")
 				return
 			}
 
-			if _, used := domainLinkLens[r.Host].LinkCustom.LinkMap[customKey]; used {
-				http.Error(w, errInvalidKeyUsed, http.StatusInternalServerError)
+			// Check if custom key is already in use in the database
+			existingLink, err := getLinkFromDB(r.Context(), customKey, r.Host)
+			if err != nil {
+				logErrors(w, r, errServerError, http.StatusInternalServerError, "Error checking for existing key: "+err.Error())
+				return
+			}
+			if existingLink != nil {
+				logErrors(w, r, errInvalidKeyUsed, http.StatusConflict, "Custom key is already in use.")
 				return
 			}
 		}
 
+		// Get how many times the link can be used before becoming invalid, 0 represents no limit
+		xTimes, err := strconv.Atoi(r.Form.Get("xTimes"))
+		if err != nil || xTimes < 0 {
+			xTimes = 0 // 0 means unlimited
+		} else if xTimes > subdomainCfg.LinkAccessMaxNr {
+			xTimes = subdomainCfg.LinkAccessMaxNr
+		}
+
 		// Handle different request types
 		requestType := r.Form.Get("requestType")
+		link := &Link{
+			Key:          customKey,
+			Domain:       r.Host,
+			TimesAllowed: xTimes,
+			ExpiresAt:    time.Now().Add(linkTimeout),
+		}
+
 		switch requestType {
 		case "url":
 			formURL := r.Form.Get("url")
-			valid := validURL(formURL)
-			if !valid {
-				logErrors(w, r, "Invalid url, only \"http://\" and \"https://\" url schemes are allowed.", http.StatusInternalServerError, "")
+			if formURL == "" {
+				logErrors(w, r, "URL cannot be empty.", http.StatusBadRequest, "Empty URL submitted")
 				return
 			}
-			currentLinkLen.Mutex.RLock()
-			currentLinkLenTimeout := currentLinkLen.Timeout
-			currentLinkLen.Mutex.RUnlock()
 
-			isCompressed := false
+			// Prepend https:// if no scheme is present.
+			if !strings.HasPrefix(formURL, "http://") && !strings.HasPrefix(formURL, "https://") {
+				formURL = "https://" + formURL
+			}
 
-			showLnk := &Link{Key: customKey, LinkType: "url", Data: formURL, IsCompressed: isCompressed, Times: xTimes, Timeout: time.Now().Add(currentLinkLenTimeout)}
-			key, err := currentLinkLen.Add(showLnk)
-			if err == nil {
-				w.Header().Add("Content-Type", "text/html; charset=utf-8")
-				logger.Println("requesting template :", r.Host+"showLink")
-				t, ok := templateMap[r.Host+"#showLink"]
-				if !ok {
-					logger.Println("ERROR getting template template :", r.Host+"showLink")
-					http.Error(w, errServerError, http.StatusInternalServerError)
-					return
-				}
+			// Validate the final URL structure.
+			if _, err := url.ParseRequestURI(formURL); err != nil {
+				logErrors(w, r, "The provided URL appears to be invalid.", http.StatusBadRequest, "Invalid URL after normalization")
+				return
+			}
 
-				tmplArgs := showLinkVars{Domain: scheme + "://" + r.Host, Data: scheme + "://" + r.Host + "/" + key, Timeout: showLnk.Timeout.Format("Mon 2006-01-02 15:04 MST")}
-
-				err = t.ExecuteTemplate(w, "showLink.tmpl", tmplArgs)
+			// Check the URL against the blocklist.
+			isBlocked, err := isURLBlockedByDNSBL(formURL)
+			if err != nil || isBlocked {
 				if err != nil {
-					logger.Println("ERROR executing template template showLink.tmpl for host :", r.Host, "with args: ", tmplArgs, "with the error: ", err)
-					http.Error(w, errServerError, http.StatusInternalServerError)
+					slogger.Error("DNSBL check failed, blocking submission", "url", formURL, "error", err)
 				}
-				logOK(r, http.StatusOK)
+				logErrors(w, r, "The provided URL is not allowed.", http.StatusBadRequest, "Blocked malicious URL submission")
 				return
 			}
-			return
+			link.LinkType = "url"
+			link.Data = []byte(formURL)
+			link.IsCompressed = false
+			createAndRespond(w, r, link, keyLength, scheme)
 		case "text":
 			if lowRAM() {
 				logErrors(w, r, errServerError, http.StatusInternalServerError, errLowRAM)
 				return
 			}
 			textBlob := r.Form.Get("text")
+			textBytes := []byte(textBlob)
+			link.LinkType = "text"
+			link.Data = textBytes
+			link.IsCompressed = false
 
-			isCompressed := false
-			if len(textBlob) > minSizeToGzip {
-				compressed, err := compress(textBlob)
-				if err == nil && len(textBlob) > len(compressed) {
-					textBlob = compressed
-					isCompressed = true
+			if len(textBytes) > config.MinSizeToGzip {
+				compressed, err := compress(textBytes)
+				if err == nil && len(textBytes) > len(compressed) {
+					link.Data = compressed
+					link.IsCompressed = true
 				}
 			}
 
-			currentLinkLen.Mutex.RLock()
-			currentLinkLenTimeout := currentLinkLen.Timeout
-			currentLinkLen.Mutex.RUnlock()
-
-			showLnk := &Link{Key: customKey, LinkType: "text", Data: textBlob, IsCompressed: isCompressed, Times: xTimes, Timeout: time.Now().Add(currentLinkLenTimeout)}
-			key, err := currentLinkLen.Add(showLnk)
-			if err == nil {
-				w.Header().Add("Content-Type", "text/html; charset=utf-8")
-				t, ok := templateMap[r.Host+"#showLink"]
-				if !ok {
-					http.Error(w, errServerError, http.StatusInternalServerError)
-					return
-				}
-				tmplArgs := showLinkVars{Domain: scheme + "://" + r.Host, Data: scheme + "://" + r.Host + "/" + key, Timeout: showLnk.Timeout.Format("Mon 2006-01-02 15:04 MST")}
-
-				err = t.ExecuteTemplate(w, "showLink.tmpl", tmplArgs)
-				if err != nil {
-					logger.Println("ERROR executing template template showLink.tmpl for host :", r.Host, "with args: ", tmplArgs)
-					http.Error(w, errServerError, http.StatusInternalServerError)
-				}
-				logOK(r, http.StatusOK)
-				return
-			}
-			return
+			createAndRespond(w, r, link, keyLength, scheme)
 		default:
 			logErrors(w, r, errNotImplemented, http.StatusNotImplemented, "Error: Invalid requestType argument.")
-			return
 		}
+		return
 	}
 
 	// If the request is not handled previously redirect to index, note that Host has been validated earlier
 	logOK(r, http.StatusSeeOther)
 	http.Redirect(w, r, scheme+"://"+r.Host, http.StatusSeeOther)
+}
+
+func handleCSPReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var report CSPReport
+	err := json.NewDecoder(r.Body).Decode(&report)
+	if err != nil {
+		// Don't log the error to the user, just to the server logs.
+		slogger.Warn("Failed to decode CSP report", "error", err)
+		return
+	}
+
+	slogger.Warn("CSP Violation Reported", "report", report.CSPReport)
+	// Respond with a 204 No Content, as is standard for reporting endpoints.
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleGET will handle GET requests and redirect to the saved link for a key, return a saved textblob or return a file
@@ -203,16 +223,77 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 		key = key[:extradataindex]
 	}
 
+	// Get the specific configuration for the requested host.
+	subdomainCfg := getSubdomainConfig(r.Host)
+
 	// Return Index page if GET request without a key
 	if len(key) == 0 {
-		indexTmpl, ok := templateMap[r.Host+"#index"]
-		if !ok || indexTmpl == nil {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load index template: "+r.Host+"#index")
+		// Check for quick add feature: a GET request to the root with a query string.
+		if r.URL.RawQuery != "" {
+			formURL := r.URL.RawQuery // The raw query is the URL.
+
+			// Prepend https:// if no scheme is present.
+			if !strings.HasPrefix(formURL, "http://") && !strings.HasPrefix(formURL, "https://") {
+				formURL = "https://" + formURL
+			}
+
+			// Validate the final URL structure.
+			if _, err := url.ParseRequestURI(formURL); err != nil {
+				logErrors(w, r, "The provided URL appears to be invalid.", http.StatusBadRequest, "Invalid quick-add URL after normalization")
+				return
+			}
+
+			// Check the URL against the blocklist.
+			isBlocked, err := isURLBlockedByDNSBL(formURL)
+			if err != nil || isBlocked {
+				if err != nil {
+					slogger.Error("DNSBL check failed, blocking submission", "url", formURL, "error", err)
+				}
+				logErrors(w, r, "The provided URL is not allowed.", http.StatusBadRequest, "Blocked malicious URL submission")
+				return
+			}
+
+			linkTimeout, err := time.ParseDuration(subdomainCfg.LinkLen1Timeout)
+			if err != nil {
+				logErrors(w, r, errServerError, http.StatusInternalServerError, "Error parsing default link timeout duration: "+err.Error())
+				return
+			}
+
+			scheme := "http"
+			if r.TLS != nil {
+				scheme = "https"
+			}
+
+			link := &Link{
+				Domain:       r.Host,
+				LinkType:     "url",
+				Data:         []byte(formURL),
+				IsCompressed: false,
+				TimesAllowed: 0, // Default to unlimited uses within the timeout period.
+				ExpiresAt:    time.Now().Add(linkTimeout),
+			}
+
+			createAndRespond(w, r, link, config.LinkLen1, scheme)
 			return
 		}
-		err := indexTmpl.Execute(w, nil)
-		if err != nil {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to Execute index template: "+r.Host+"#index")
+
+		indexTmpl, ok := templateMap["index"]
+		if !ok || indexTmpl == nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load index template")
+			return
+		}
+		// Prepare the data for the index page template.
+		pageVars := IndexPageVars{
+			CssSRIHash:      cssSRIHash,
+			LinkLen1Display: subdomainCfg.LinkLen1Display,
+			LinkLen2Display: subdomainCfg.LinkLen2Display,
+			LinkLen3Display: subdomainCfg.LinkLen3Display,
+			CustomDisplay:   subdomainCfg.CustomDisplay,
+			LinkAccessMaxNr: subdomainCfg.LinkAccessMaxNr,
+		}
+
+		if err := indexTmpl.Execute(w, pageVars); err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute index template: "+err.Error())
 			return
 		}
 		logOK(r, http.StatusOK)
@@ -221,23 +302,8 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 
 	// verify that key only consists of valid characters
 	if !validate(key) {
-		logErrors(w, r, errInvalidKey, http.StatusInternalServerError, "")
+		logErrors(w, r, errInvalidKey, http.StatusBadRequest, "Invalid characters in key.")
 		return
-	}
-
-	// quick check if request is quickAddURL request
-	if len(r.URL.RawQuery) > 0 {
-		if key == "listactive~" {
-			listActiveLinks(w, r)
-			return
-		}
-		if validURL(r.URL.RawQuery) {
-			quickAddURL(w, r, r.URL.RawQuery, key)
-			return
-		} else {
-			logErrors(w, r, "Invalid Quick Add URL request", http.StatusInternalServerError, "Invalid Quick Add URL request, please use the following syntax: \""+r.Host+"?http://example.com/\". where http://example.com/ is your link.\nAlso note that only \"http://\" and \"https://\" url schemes are allowed.")
-			return
-		}
 	}
 
 	var showLink bool
@@ -247,9 +313,30 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// start by checking static key map
-	if lnk, ok := config.StaticLinks[key]; ok {
-		logOK(r, http.StatusPermanentRedirect)
-		http.Redirect(w, r, lnk, http.StatusPermanentRedirect)
+	if destURL, ok := subdomainCfg.StaticLinks[key]; ok {
+		if showLink {
+			// If inspection is requested, show the destination URL as plain text.
+			logOK(r, http.StatusOK)
+			w.Header().Add("Content-Type", "text/plain; charset=utf-8")
+			w.Write([]byte(r.Host + "/" + key + "\n\nis a static link pointing to \n\n" + html.EscapeString(destURL)))
+		} else {
+			// Otherwise, perform the permanent redirect.
+			logOK(r, http.StatusPermanentRedirect)
+			http.Redirect(w, r, destURL, http.StatusPermanentRedirect)
+		}
+		return
+	}
+
+	// Retrieve the link from the database
+	lnk, err := getLinkFromDB(r.Context(), key, r.Host)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Error retrieving link from DB: "+err.Error())
+		return
+	}
+
+	// If link is not found, it might be a file request or a 404
+	if lnk == nil {
+		logErrors(w, r, errInvalidKey, http.StatusNotFound, "Link not found, expired, or used up: "+key)
 		return
 	}
 
@@ -258,105 +345,147 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 		scheme = "https"
 	}
 
-	var lnk *Link
-	var ok bool
-	switch keylen := len(key); {
-	case keylen == 1:
-		domainLinkLens[r.Host].LinkLen1.Mutex.RLock()
-		if lnk, ok = domainLinkLens[r.Host].LinkLen1.LinkMap[key]; !ok {
-			domainLinkLens[r.Host].LinkLen1.Mutex.RUnlock()
-			http.Error(w, errInvalidKey, http.StatusInternalServerError)
-			return
-		}
-		domainLinkLens[r.Host].LinkLen1.Mutex.RUnlock()
-	case keylen == 2:
-		domainLinkLens[r.Host].LinkLen2.Mutex.RLock()
-		if lnk, ok = domainLinkLens[r.Host].LinkLen2.LinkMap[key]; !ok {
-			domainLinkLens[r.Host].LinkLen2.Mutex.RUnlock()
-			http.Error(w, errInvalidKey, http.StatusInternalServerError)
-			return
-		}
-		domainLinkLens[r.Host].LinkLen2.Mutex.RUnlock()
-	case keylen == 3:
-		domainLinkLens[r.Host].LinkLen3.Mutex.RLock()
-		if lnk, ok = domainLinkLens[r.Host].LinkLen3.LinkMap[key]; !ok {
-			domainLinkLens[r.Host].LinkLen3.Mutex.RUnlock()
-			http.Error(w, errInvalidKey, http.StatusInternalServerError)
-			return
-		}
-		domainLinkLens[r.Host].LinkLen3.Mutex.RUnlock()
-	case keylen > 3 && keylen < maxKeyLen:
-		// key is validated previously
-		domainLinkLens[r.Host].LinkCustom.Mutex.RLock()
-		if lnk, ok = domainLinkLens[r.Host].LinkCustom.LinkMap[key]; !ok {
-			domainLinkLens[r.Host].LinkCustom.Mutex.RUnlock()
-			http.Error(w, errInvalidKey, http.StatusInternalServerError)
-			return
-		}
-		domainLinkLens[r.Host].LinkCustom.Mutex.RUnlock()
-	default:
-		http.Error(w, errInvalidKey, http.StatusInternalServerError)
-		return
-	}
-
-	if lnk == nil {
-		http.Error(w, errInvalidKey, http.StatusInternalServerError)
-		return
-	}
-
 	switch lnk.LinkType {
 	case "url":
 		if showLink {
 			logOK(r, http.StatusOK)
 			w.Header().Add("Content-Type", "text/plain; charset=utf-8")
-			fmt.Fprint(w, r.Host+"/"+key+"\n\nis pointing to \n\n"+html.EscapeString(lnk.Data))
+			w.Write([]byte(r.Host + "/" + key + "\n\nis pointing to \n\n" + html.EscapeString(string(lnk.Data))))
 			return
 		}
+		// This is a standard URL shortener request. Render the intermediate page.
 		w.Header().Add("Content-Type", "text/html; charset=utf-8")
-		t, ok := templateMap[r.Host+"#showLink"]
+		t, ok := templateMap["showLink"]
 		if !ok {
-			http.Error(w, errServerError, http.StatusInternalServerError)
-		}
-		tmplArgs := showLinkVars{Domain: scheme + "://" + r.Host, Data: lnk.Data, Timeout: lnk.Timeout.Format("Mon 2006-01-02 15:04 MST")}
-		err := t.ExecuteTemplate(w, "showLink.tmpl", tmplArgs)
-		if err != nil {
-			http.Error(w, errServerError, http.StatusInternalServerError)
-		}
-		logOK(r, http.StatusTemporaryRedirect)
-		return
-	case "text":
-		w.Header().Add("Content-Type", "text/plain; charset=utf-8")
-		if showLink {
-			logOK(r, http.StatusOK)
-			fmt.Fprint(w, r.Host+"/"+key+"\n\nis pointing to a "+r.Host+" Text dump")
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not find showLink template")
 			return
 		}
-		if lnk.IsCompressed {
-			if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
-				w.Header().Add("content-encoding", "gzip")
-				logOK(r, http.StatusOK)
-				fmt.Fprint(w, lnk.Data)
-				return
-			} else {
-				returnDecompressed(lnk, w, r) // defined in misc.go
-				return
-			}
+		tmplArgs := showLinkVars{
+			Domain:        scheme + "://" + r.Host,
+			Data:          string(lnk.Data),
+			Timeout:       lnk.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
+			TimesAllowed:  lnk.TimesAllowed,
+			RemainingUses: lnk.TimesAllowed - (lnk.TimesUsed + 1),
+		}
+		if err := t.Execute(w, tmplArgs); err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute showLink template: "+err.Error())
+			return
 		}
 		logOK(r, http.StatusOK)
-		fmt.Fprint(w, lnk.Data)
+	case "text":
+		if showLink {
+			w.Header().Add("Content-Type", "text/plain; charset=utf-8")
+			logOK(r, http.StatusOK)
+			w.Write([]byte(r.Host + "/" + key + "\n\nis pointing to a " + r.Host + " Text dump"))
+			return
+		}
+
+		var textContent string
+		if lnk.IsCompressed {
+			decompressed, err := decompress(lnk.Data)
+			if err != nil {
+				logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to decompress text data: "+err.Error())
+				return
+			}
+			textContent = decompressed
+		} else {
+			textContent = string(lnk.Data)
+		}
+
+		w.Header().Add("Content-Type", "text/html; charset=utf-8")
+		t, ok := templateMap["showText"]
+		if !ok {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not find showText template")
+			return
+		}
+
+		tmplArgs := showTextVars{
+			Domain:        scheme + "://" + r.Host,
+			Data:          textContent,
+			Timeout:       lnk.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
+			TimesAllowed:  lnk.TimesAllowed,
+			RemainingUses: lnk.TimesAllowed - (lnk.TimesUsed + 1),
+		}
+		if err := t.Execute(w, tmplArgs); err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute showText template: "+err.Error())
+		}
+		logOK(r, http.StatusOK)
 		return
 	default:
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "invalid LinkType "+url.QueryEscape(lnk.LinkType))
 	}
 }
 
-func handleCSS(mux *http.ServeMux) {
-	f, err := ioutil.ReadFile(filepath.Join(config.BaseDir, "css", "shorter.css"))
+func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLength int, scheme string) {
+	ctx := r.Context()
+	var err error
+
+	// If the key is empty (not a custom key), generate a random one.
+	if link.Key == "" {
+		// Retry a few times in case of a random key collision.
+		for i := 0; i < 5; i++ {
+			link.Key, err = generateRandomKey(keyLength)
+			if err != nil {
+				logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate random key: "+err.Error())
+				return
+			}
+			err = createLinkInDB(ctx, *link)
+			if err == nil {
+				break // Success
+			}
+		}
+	} else {
+		// This is a custom key, attempt to insert it once.
+		err = createLinkInDB(ctx, *link)
+	}
+
 	if err != nil {
-		log.Fatalln("Missing shorter.css in Template dir/css/")
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to create link in database: "+err.Error())
+		return
+	}
+
+	// Respond to the user with the success page.
+	w.Header().Add("Content-Type", "text/html; charset=utf-8")
+	t, ok := templateMap["showLink"]
+	if !ok {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not find showLink template")
+		return
+	}
+
+	fullURL := scheme + "://" + r.Host + "/" + link.Key
+	tmplArgs := showLinkVars{Domain: scheme + "://" + r.Host, Data: fullURL, Timeout: link.ExpiresAt.Format("Mon 2006-01-02 15:04 MST")}
+	if err := t.Execute(w, tmplArgs); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute showLink template: "+err.Error())
+	}
+	logOK(r, http.StatusCreated)
+}
+
+func handleCSS(mux *http.ServeMux) error {
+	f, err := os.ReadFile(filepath.Join(config.BaseDir, "css", "shorter.css"))
+	if err != nil {
+		return fmt.Errorf("missing shorter.css in %s/css/: %w", config.BaseDir, err)
 	}
 
 	mux.HandleFunc("/shorter.css", getSingleFileHandler(f, "text/css"))
+	return nil
+}
+
+func handleJS(mux *http.ServeMux) {
+	jsDir := filepath.Join(config.BaseDir, "js")
+	files, err := os.ReadDir(jsDir)
+	if err != nil {
+		slogger.Warn("JS directory not found, skipping JS handlers.", "path", jsDir)
+		return
+	}
+
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".js") {
+			f, err := os.ReadFile(filepath.Join(jsDir, file.Name()))
+			if err == nil {
+				mux.HandleFunc("/js/"+file.Name(), getSingleFileHandler(f, "application/javascript"))
+			}
+		}
+	}
 }
 
 func getSingleFileHandler(f []byte, mimeType string) (handleFile func(w http.ResponseWriter, r *http.Request)) {
@@ -375,12 +504,12 @@ func getSingleFileHandler(f []byte, mimeType string) (handleFile func(w http.Res
 		if validRequest(r) {
 			w.Header().Add("Content-Type", mimeType)
 			w.Header().Add("Cache-Control", "max-age=2592000, public")
-			if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") && tryGzip && false {
+			if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") && tryGzip {
 				w.Header().Add("content-encoding", "gzip")
-				fmt.Fprintf(w, "%s", cf)
+				w.Write(cf)
 				return
 			}
-			fmt.Fprintf(w, "%s", f)
+			w.Write(f)
 			return
 		}
 		http.Error(w, errServerError, http.StatusInternalServerError)
@@ -388,60 +517,65 @@ func getSingleFileHandler(f []byte, mimeType string) (handleFile func(w http.Res
 	return
 }
 
-func getImgHandler(img string, mimeType string) (handleImgFile func(w http.ResponseWriter, r *http.Request)) {
-	handleImgFile = func(w http.ResponseWriter, r *http.Request) {
+func getImgHandler(imageName string, mimeType string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		addHeaders(w, r)
 		if validRequest(r) {
 			w.Header().Add("Content-Type", mimeType)
 			w.Header().Add("Cache-Control", "max-age=2592000, public")
-			fmt.Fprintf(w, "%s", ImageMap[r.Host+img])
+			// Serve the image directly from the map using its simple filename key.
+			if data, ok := ImageMap[imageName]; ok {
+				w.Write(data)
+			} else {
+				// If the image isn't in the map, it wasn't loaded. Return a 404.
+				http.NotFound(w, r)
+			}
 			return
 		}
 		http.Error(w, errServerError, http.StatusInternalServerError)
 	}
-	return
 }
 
-// handleImages adds /logo.png, /favicon.ico and /favicon.png to all domains specified in config, if a domain is missing a image it will fall back to the default image
+// handleImages sets up handlers for image files.
+// It relies on initImages() having been called first to populate the ImageMap.
 func handleImages(mux *http.ServeMux) {
-	ImageMap = make(map[string][]byte)
-
-	defaultLogo := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x80, 0x04, 0x03, 0x00, 0x00, 0x00, 0x31, 0x10, 0x7c, 0xf8, 0x00, 0x00, 0x00, 0x0f, 0x50, 0x4c, 0x54, 0x45, 0x00, 0x00, 0x00, 0x17, 0x9c, 0xf2, 0x8a, 0xc2, 0xf3, 0xb7, 0xda, 0xf8, 0xfd, 0xff, 0xfc, 0x73, 0x3f, 0xef, 0xad, 0x00, 0x00, 0x00, 0x01, 0x74, 0x52, 0x4e, 0x53, 0x00, 0x40, 0xe6, 0xd8, 0x66, 0x00, 0x00, 0x02, 0x10, 0x49, 0x44, 0x41, 0x54, 0x68, 0xde, 0xed, 0xda, 0x5d, 0x76, 0x82, 0x30, 0x10, 0x86, 0x61, 0xbb, 0x83, 0x26, 0xb0, 0x01, 0x94, 0x0d, 0x50, 0xdd, 0x00, 0x98, 0xfd, 0xaf, 0xa9, 0xca, 0x4f, 0x14, 0x4f, 0x66, 0xbe, 0x2f, 0x33, 0x17, 0xde, 0x90, 0x3b, 0x7b, 0xe0, 0x39, 0xe1, 0x4d, 0xe0, 0xd4, 0xd2, 0xd3, 0xe9, 0x39, 0x82, 0x69, 0x9c, 0xb6, 0xf1, 0x63, 0x3b, 0x3f, 0x84, 0x5f, 0xe7, 0xf9, 0x9b, 0x60, 0x3f, 0x7f, 0xb9, 0x0a, 0xc7, 0x04, 0x96, 0x29, 0x78, 0xce, 0x9f, 0xa7, 0xe0, 0x05, 0x5c, 0x57, 0xf0, 0xbc, 0x86, 0xef, 0x03, 0xbe, 0xf3, 0x1f, 0x11, 0x0e, 0xe0, 0x00, 0xac, 0xc0, 0xf9, 0xdc, 0x79, 0x80, 0x78, 0x4b, 0x29, 0xfd, 0xd9, 0x81, 0x98, 0xe6, 0x31, 0x99, 0x81, 0x7e, 0x01, 0x52, 0x67, 0x04, 0xd6, 0x09, 0xe4, 0x29, 0x2c, 0x40, 0x3c, 0x33, 0x63, 0x3e, 0xb4, 0xdd, 0x80, 0xf4, 0x0e, 0x34, 0x89, 0x18, 0xd3, 0xee, 0x0a, 0xb6, 0x6b, 0xa8, 0x00, 0xc6, 0xf9, 0xd0, 0x5b, 0xfe, 0x3c, 0xd4, 0x02, 0x83, 0x17, 0x08, 0x4e, 0x60, 0xf2, 0x02, 0x63, 0xf8, 0x88, 0x58, 0x0b, 0xac, 0x1b, 0xc7, 0xbe, 0x8c, 0xeb, 0x46, 0xca, 0x87, 0x4e, 0x95, 0xc0, 0xb6, 0xf7, 0x73, 0x84, 0xa1, 0x12, 0x18, 0xc3, 0x7e, 0x0a, 0xfb, 0x9b, 0x89, 0x00, 0x5e, 0x4f, 0x80, 0xcb, 0xf3, 0xe3, 0xbd, 0xab, 0x04, 0xee, 0xef, 0xf7, 0xd3, 0xf5, 0x9a, 0x1f, 0x07, 0x34, 0x30, 0x05, 0x61, 0xb0, 0xc0, 0xa0, 0x03, 0x8f, 0x49, 0x95, 0x47, 0x21, 0x41, 0x11, 0x90, 0x46, 0x7e, 0x7a, 0xdc, 0x83, 0x0d, 0x68, 0x60, 0x02, 0x00, 0xf4, 0x30, 0x01, 0x00, 0x70, 0x02, 0x1d, 0x20, 0x12, 0xe8, 0x40, 0x5b, 0x4a, 0x70, 0x59, 0x17, 0x88, 0x79, 0xac, 0x17, 0x13, 0xf4, 0xfb, 0x9f, 0xa9, 0x40, 0x4e, 0x10, 0x6c, 0x40, 0x79, 0x11, 0x2b, 0x80, 0x7c, 0x05, 0xa3, 0x11, 0xb8, 0x95, 0x12, 0x54, 0x00, 0xb1, 0x98, 0xa0, 0x02, 0x10, 0xf6, 0x31, 0x0f, 0x94, 0x13, 0x54, 0x00, 0xe5, 0x04, 0x3c, 0x20, 0x24, 0xe0, 0x81, 0xb6, 0x9c, 0x80, 0x07, 0x84, 0x04, 0x3c, 0x20, 0xdd, 0xca, 0x2c, 0x90, 0x17, 0xf1, 0xf3, 0x56, 0x66, 0x81, 0x5e, 0x48, 0x40, 0x03, 0xc2, 0x22, 0xd2, 0x40, 0x94, 0x12, 0xb0, 0x80, 0x98, 0x80, 0x05, 0xc4, 0x04, 0x2c, 0x20, 0x26, 0x20, 0x01, 0x39, 0x01, 0x09, 0xb4, 0x62, 0x02, 0x12, 0x90, 0x13, 0x90, 0x40, 0x12, 0x13, 0x70, 0xc0, 0xeb, 0xf7, 0x85, 0x60, 0x03, 0x94, 0x04, 0x1c, 0x90, 0x17, 0x71, 0xb4, 0x01, 0x51, 0x49, 0x40, 0x01, 0x5a, 0x02, 0x0a, 0x50, 0x16, 0x91, 0x03, 0xb4, 0x04, 0x0c, 0xa0, 0xec, 0x63, 0x0e, 0x50, 0x13, 0x30, 0x80, 0x9a, 0x80, 0x01, 0x92, 0x96, 0x80, 0x00, 0x1a, 0x35, 0x01, 0x01, 0x68, 0xfb, 0x98, 0x02, 0xf4, 0x04, 0x04, 0xa0, 0xed, 0x63, 0x06, 0x00, 0x09, 0x30, 0xd0, 0xeb, 0x09, 0x30, 0x70, 0xd3, 0x13, 0x40, 0x20, 0x82, 0x04, 0x10, 0x40, 0x09, 0x20, 0x80, 0x12, 0x40, 0x20, 0x81, 0x04, 0x08, 0x80, 0x09, 0x10, 0xf0, 0xf9, 0xe5, 0xbc, 0x1a, 0x80, 0x09, 0x10, 0xa0, 0xdf, 0xca, 0x18, 0x68, 0x60, 0x02, 0x00, 0xf4, 0x30, 0x01, 0x00, 0xd0, 0x3e, 0x46, 0x40, 0xc4, 0x09, 0x74, 0x80, 0x48, 0xa0, 0x03, 0x44, 0x02, 0x1d, 0x20, 0x12, 0xa8, 0x00, 0x93, 0x40, 0x05, 0x5e, 0xfb, 0xb8, 0xb3, 0x01, 0x78, 0x1f, 0x03, 0x00, 0xde, 0xca, 0x00, 0x60, 0x16, 0x51, 0x07, 0xf2, 0xdf, 0x5e, 0x94, 0x04, 0x55, 0x5f, 0xff, 0x99, 0x71, 0x00, 0x07, 0x30, 0x03, 0xdf, 0x7f, 0xdb, 0xe7, 0x06, 0xbe, 0xff, 0xce, 0xd5, 0xff, 0xda, 0xd8, 0xfd, 0xe2, 0xda, 0xff, 0xea, 0xdc, 0xfd, 0xf2, 0xde, 0xf7, 0xef, 0x03, 0xff, 0x2b, 0xec, 0x86, 0x52, 0x86, 0x8e, 0xac, 0x41, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82}
-	defaultFavicon := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x10, 0x08, 0x03, 0x00, 0x00, 0x00, 0x28, 0x2d, 0x0f, 0x53, 0x00, 0x00, 0x00, 0x9c, 0x50, 0x4c, 0x54, 0x45, 0x1f, 0x9b, 0xed, 0x1f, 0x9b, 0xef, 0x1e, 0x9a, 0xed, 0x1e, 0x9c, 0xed, 0x1f, 0x9b, 0xee, 0x1f, 0x9c, 0xef, 0x20, 0x9c, 0xee, 0x20, 0x9c, 0xee, 0x21, 0x9c, 0xee, 0x23, 0x9d, 0xee, 0x26, 0x9e, 0xee, 0x28, 0x9f, 0xee, 0x2a, 0xa0, 0xee, 0x2e, 0xa2, 0xef, 0x31, 0xa3, 0xef, 0x37, 0xa6, 0xef, 0x39, 0xa7, 0xef, 0x45, 0xac, 0xf0, 0x55, 0xb3, 0xf1, 0x5e, 0xb7, 0xf2, 0x62, 0xb9, 0xf3, 0x63, 0xb9, 0xf2, 0x65, 0xba, 0xf2, 0x6e, 0xbe, 0xf3, 0x77, 0xc2, 0xf4, 0x78, 0xc2, 0xf4, 0x81, 0xc7, 0xf5, 0x87, 0xc9, 0xf5, 0x8a, 0xca, 0xf5, 0x8b, 0xcb, 0xf5, 0x91, 0xce, 0xf6, 0x96, 0xd0, 0xf6, 0x99, 0xd1, 0xf6, 0x9b, 0xd2, 0xf6, 0x9b, 0xd2, 0xf7, 0x9d, 0xd3, 0xf7, 0x9f, 0xd4, 0xf7, 0xb9, 0xe0, 0xf9, 0xcb, 0xe7, 0xfa, 0xd7, 0xed, 0xfb, 0xda, 0xee, 0xfb, 0xdf, 0xf0, 0xfc, 0xe5, 0xf3, 0xfc, 0xe7, 0xf4, 0xfc, 0xeb, 0xf6, 0xfd, 0xed, 0xf7, 0xfd, 0xf0, 0xf8, 0xfd, 0xf1, 0xf8, 0xfd, 0xf2, 0xf9, 0xfd, 0xf5, 0xfa, 0xfe, 0xf9, 0xfc, 0xfe, 0xff, 0xff, 0xff, 0x7a, 0x52, 0xe8, 0x58, 0x00, 0x00, 0x00, 0x07, 0x74, 0x52, 0x4e, 0x53, 0x7d, 0x7d, 0x7e, 0x7e, 0xf8, 0xf8, 0xf9, 0x01, 0xb6, 0xcf, 0xc8, 0x00, 0x00, 0x00, 0x7e, 0x49, 0x44, 0x41, 0x54, 0x18, 0x57, 0x55, 0xcf, 0xc7, 0x12, 0x82, 0x40, 0x10, 0x84, 0xe1, 0x51, 0x59, 0x7f, 0xd7, 0x84, 0x62, 0x00, 0x23, 0x06, 0xcc, 0x71, 0x9d, 0xf7, 0x7f, 0x37, 0x2f, 0x50, 0x35, 0xf4, 0xad, 0xbf, 0xaa, 0x3e, 0xb4, 0xb4, 0x1c, 0x26, 0xae, 0x21, 0x6d, 0xdb, 0x21, 0x12, 0xdb, 0x26, 0xdb, 0x18, 0x21, 0x7f, 0x95, 0x59, 0xf1, 0xd1, 0x3d, 0xc2, 0x21, 0x84, 0x10, 0xc2, 0x4f, 0xdf, 0x03, 0x66, 0xf9, 0x88, 0x6a, 0x72, 0xd6, 0x0d, 0x24, 0x69, 0x5c, 0xc1, 0x5c, 0x9f, 0x7d, 0x38, 0xe9, 0xb4, 0x04, 0x7f, 0xd5, 0x25, 0x16, 0x32, 0xbd, 0x77, 0x2d, 0xf4, 0x1e, 0xba, 0xc0, 0xc2, 0x5a, 0x6f, 0xde, 0xc2, 0xf0, 0xab, 0x29, 0x16, 0x8e, 0x7a, 0xe9, 0x58, 0xf0, 0xbb, 0x22, 0x01, 0x80, 0xac, 0x18, 0x23, 0xb5, 0xb3, 0xe0, 0xa4, 0x59, 0x93, 0x48, 0xfe, 0x29, 0x72, 0x10, 0x99, 0xc7, 0x5c, 0x2b, 0x48, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82}
-
-	for _, domain := range config.DomainNames {
-		logo, err := ioutil.ReadFile(filepath.Join(config.BaseDir, domain, "logo.png"))
-		if err != nil {
-			if logger != nil {
-				logger.Println("Missing /" + domain + "/logo.png in Template dir, fallback to default logo.png")
+	// The ImageMap is already populated by initImages() at startup.
+	// We just need to create handlers for each image in the map.
+	for imageName := range ImageMap {
+		// Determine MIME type based on file extension.
+		var mimeType string
+		switch {
+		case strings.HasSuffix(imageName, ".png"):
+			mimeType = "image/png"
+		case strings.HasSuffix(imageName, ".ico"):
+			mimeType = "image/x-icon"
+		case strings.HasSuffix(imageName, ".svg"):
+			mimeType = "image/svg+xml"
+		default:
+			// Skip files with unsupported extensions.
+			if slogger != nil {
+				slogger.Warn("Skipping image handler for unsupported file", "name", imageName)
 			}
-			ImageMap[domain+"-logo"] = defaultLogo
-		} else {
-			ImageMap[domain+"-logo"] = logo
+			continue
 		}
 
-		favicon, err := ioutil.ReadFile(filepath.Join(config.BaseDir, domain, "favicon.png"))
-		if err != nil {
-			if logger != nil {
-				logger.Println("Missing /" + domain + "/favicon.png in Template dir, fallback to default favicon.png")
-			}
-			ImageMap[domain+"-favicon"] = defaultFavicon
-		} else {
-			ImageMap[domain+"-favicon"] = favicon
+		// The path for the handler should be /<imageName>
+		path := "/" + imageName
+		mux.HandleFunc(path, getImgHandler(imageName, mimeType))
+		// Special case for favicon.ico, which browsers often request.
+		// If we have a favicon.png, also serve it at /favicon.ico.
+		if imageName == "favicon.png" {
+			mux.HandleFunc("/favicon.ico", getImgHandler("favicon.png", "image/x-icon"))
 		}
 	}
-
-	mux.HandleFunc("/logo.png", getImgHandler("-logo", "image/png"))
-	mux.HandleFunc("/favicon.png", getImgHandler("-favicon", "image/png"))
-	mux.HandleFunc("/favicon.ico", getImgHandler("-favicon", "image/png"))
 }
 
 // handleRobots will return the robots.txt located in the Template dir specified in the config file, if no robots.txt file is found we return a 404 error
 func handleRobots(mux *http.ServeMux) {
-	f, err := ioutil.ReadFile(filepath.Join(config.BaseDir, "robots.txt"))
+	f, err := os.ReadFile(filepath.Join(config.BaseDir, "robots.txt"))
 	if err != nil {
-		if logger != nil {
-			logger.Println("Missing robots.txt in Template dir, fallback to returning 404 on requests for robots.txt")
+		if slogger != nil {
+			slogger.Info("Missing robots.txt in Template dir, will return 404 for /robots.txt requests")
 		}
 		handler404 := func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Not Found", http.StatusNotFound)
@@ -454,71 +588,10 @@ func handleRobots(mux *http.ServeMux) {
 		if validRequest(r) {
 			w.Header().Add("Content-Type", "text/plain; charset=utf-8")
 			w.Header().Add("Cache-Control", "max-age=2592000, public")
-			fmt.Fprintf(w, "%s", f)
+			w.Write(f)
 			return
 		}
 		http.Error(w, errServerError, http.StatusInternalServerError)
 	}
 	mux.HandleFunc("/robots.txt", handleRobots)
-}
-
-func quickAddURL(w http.ResponseWriter, r *http.Request, url, key string) {
-	var urlLink *LinkLen
-
-	// Remove keys of invalid size, note that key has been validated to only contain valid characters previously
-	if len(key) <= 3 || len(key) >= maxKeyLen {
-		key = ""
-	}
-
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-
-	// Try to quickAddURL for first len 1, if all are full then try len 2 and lastly len 3
-	for i := 0; i <= 3; i++ {
-		switch i {
-		case 0:
-			if key == "" {
-				continue
-			}
-			urlLink = &domainLinkLens[r.Host].LinkCustom
-			if _, used := urlLink.LinkMap[key]; used {
-				http.Error(w, errInvalidKeyUsed, http.StatusInternalServerError)
-				return
-			}
-		case 1:
-			urlLink = &domainLinkLens[r.Host].LinkLen1
-		case 2:
-			urlLink = &domainLinkLens[r.Host].LinkLen2
-		case 3:
-			urlLink = &domainLinkLens[r.Host].LinkLen3
-		default:
-		}
-
-		urlLink.Mutex.RLock()
-		linkTimeout := urlLink.Timeout
-		urlLink.Mutex.RUnlock()
-
-		isCompressed := false
-
-		showLink := &Link{Key: key, LinkType: "url", Data: url, IsCompressed: isCompressed, Times: -1, Timeout: time.Now().Add(linkTimeout)}
-		_, err := urlLink.Add(showLink)
-		if err == nil {
-			w.Header().Add("Content-Type", "text/html; charset=utf-8")
-			t, ok := templateMap[r.Host+"#showLink"]
-			if !ok {
-				http.Error(w, errServerError, http.StatusInternalServerError)
-				return
-			}
-
-			tmplArgs := showLinkVars{Domain: scheme + "://" + r.Host, Data: showLink.Data, Timeout: showLink.Timeout.Format("Mon 2006-01-02 15:04 MST")}
-			err = t.ExecuteTemplate(w, "showLink.tmpl", tmplArgs)
-			if err != nil {
-				http.Error(w, errServerError, http.StatusInternalServerError)
-			}
-			logOK(r, http.StatusOK)
-			return
-		}
-	}
 }

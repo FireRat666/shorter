@@ -3,19 +3,20 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
-	"crypto/sha256"
-	"encoding/hex"
+	"context"
+	_ "embed"
 	"fmt"
-	"go/build"
 	"html/template"
 	"io"
+	"log/slog"
+	"math/rand"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
-	"sync"
+	"time"
 )
 
 // validate validates if string s contains only characters in charset. validate is not a crypto related function so no need for constant time
@@ -36,84 +37,20 @@ func validate(s string) bool {
 	return true
 }
 
-// initMaps will init and fill linkLen1, linkLen2 and linkLen3 with all valid free keys for each of them
-func initLinkLens() {
-	domainLinkLens = make(map[string]*LinkLens)
-
-	for _, domain := range config.DomainNames {
-		domainLinkLens[domain] = new(LinkLens)
-		initLinkLensDomain(domain)
-		// Start TimeoutManager for all key lengths. Defined in types.go
-		go domainLinkLens[domain].LinkLen1.TimeoutManager()
-		go domainLinkLens[domain].LinkLen2.TimeoutManager()
-		go domainLinkLens[domain].LinkLen3.TimeoutManager()
-		go domainLinkLens[domain].LinkCustom.TimeoutManager()
-	}
-}
-
-func initLinkLensDomain(domain string) {
-	domainLinkLens[domain].LinkLen1 = LinkLen{
-		Mutex:   sync.RWMutex{},
-		LinkMap: make(map[string]*Link),
-		FreeMap: make(map[string]bool),
-		Timeout: config.Clear1Duration,
-		Domain:  domain,
-	}
-
-	domainLinkLens[domain].LinkLen2 = LinkLen{
-		Mutex:   sync.RWMutex{},
-		LinkMap: make(map[string]*Link),
-		FreeMap: make(map[string]bool),
-		Timeout: config.Clear2Duration,
-		Domain:  domain,
-	}
-
-	domainLinkLens[domain].LinkLen3 = LinkLen{
-		Mutex:   sync.RWMutex{},
-		LinkMap: make(map[string]*Link),
-		FreeMap: make(map[string]bool),
-		Timeout: config.Clear3Duration,
-		Domain:  domain,
-	}
-
-	domainLinkLens[domain].LinkCustom = LinkLen{
-		Mutex:   sync.RWMutex{},
-		LinkMap: make(map[string]*Link),
-		Timeout: config.ClearCustomLinksDuration,
-		Domain:  domain,
-	}
-
-	domainLinkLens[domain].LinkLen1.Mutex.Lock()
-	defer domainLinkLens[domain].LinkLen1.Mutex.Unlock()
-	domainLinkLens[domain].LinkLen2.Mutex.Lock()
-	defer domainLinkLens[domain].LinkLen2.Mutex.Unlock()
-	domainLinkLens[domain].LinkLen3.Mutex.Lock()
-	defer domainLinkLens[domain].LinkLen3.Mutex.Unlock()
-
-	for _, char1 := range charset {
-		domainLinkLens[domain].LinkLen1.FreeMap[string(char1)] = true
-		for _, char2 := range charset {
-			domainLinkLens[domain].LinkLen2.FreeMap[string(char1)+string(char2)] = true
-			for _, char3 := range charset {
-				domainLinkLens[domain].LinkLen3.FreeMap[string(char1)+string(char2)+string(char3)] = true
-			}
-		}
-	}
-	if logger != nil {
-		logger.Println("All maps initialized for", domain)
-	}
-}
-
 func addHeaders(w http.ResponseWriter, r *http.Request) {
-	if config.ReportTo != "" {
-		w.Header().Add("Report-To", strings.ReplaceAll(config.ReportTo, "###DomainNames###", r.Host))
-	}
-	if !config.NoTLS && config.HSTS != "" {
-		w.Header().Add("Strict-Transport-Security", config.HSTS)
-	}
+	// Set the Content-Security-Policy header if it's defined in the config.
 	if config.CSP != "" {
-		w.Header().Add("Content-Security-Policy", strings.ReplaceAll(config.CSP, "###DomainNames###", r.Host))
+		w.Header().Set("Content-Security-Policy", config.CSP)
 	}
+}
+
+// getSubdomainConfig returns the specific configuration for a given host,
+// falling back to the default configuration if no specific one is found.
+func getSubdomainConfig(host string) SubdomainConfig {
+	if subConfig, ok := config.Subdomains[host]; ok {
+		return subConfig
+	}
+	return config.Defaults
 }
 
 // validRequest returns true if the host string matches any of the valid hosts specified in the config and if the request is of a valid method (GET, POST)
@@ -132,181 +69,270 @@ func validRequest(r *http.Request) bool {
 	return validHost && validType
 }
 
-func validURL(link string) bool {
-	// simple sanity check to fail early, If len(link) is less than 11 it is definitely an invalid url link.
-	if len(link) < 11 || !strings.HasPrefix(link, "http://") && !strings.HasPrefix(link, "https://") {
-		return false
+var customResolver *net.Resolver
+
+func initResolver() {
+	if len(config.MalwareProtection.CustomDNSServers) > 0 {
+		dialer := &net.Dialer{
+			Timeout: 5 * time.Second,
+		}
+		customResolver = &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				// Randomly select a DNS server from the list for each dial to improve resilience.
+				server := config.MalwareProtection.CustomDNSServers[rand.Intn(len(config.MalwareProtection.CustomDNSServers))]
+				return dialer.DialContext(ctx, "udp", server)
+			},
+		}
+		if slogger != nil {
+			slogger.Info("Using custom DNS resolver for malware checks", "servers", config.MalwareProtection.CustomDNSServers)
+		}
 	}
-	_, err := url.Parse(link)
-	return err == nil
+}
+
+// isURLBlockedByDNSBL checks if the domain of a given URL is listed on any of the configured DNSBL servers.
+func isURLBlockedByDNSBL(urlToCheck string) (bool, error) {
+	if !config.MalwareProtection.Enabled || len(config.MalwareProtection.DNSBLServers) == 0 {
+		return false, nil
+	}
+
+	resolver := net.DefaultResolver
+	if customResolver != nil {
+		resolver = customResolver
+	}
+
+	parsedURL, err := url.Parse(urlToCheck)
+	if err != nil {
+		return false, fmt.Errorf("could not parse URL for DNSBL check: %w", err)
+	}
+	host := parsedURL.Hostname()
+
+	// Determine the list of IPs to check.
+	var ipsToCheck []net.IP
+	// First, check if the host is already a literal IP address.
+	ip := net.ParseIP(host)
+	if ip != nil {
+		// If it is, that's the only IP we need to check.
+		ipsToCheck = []net.IP{ip}
+	} else {
+		// If it's a domain name, resolve it to its IP addresses.
+		resolvedIPs, err := resolver.LookupIP(context.Background(), "ip", host)
+		if err != nil {
+			// This can happen for legitimate new domains. We log it but don't treat it as a block.
+			slogger.Info("Could not resolve host for DNSBL check", "host", host, "error", err)
+			return false, nil
+		}
+		ipsToCheck = resolvedIPs
+	}
+
+	for _, currentIP := range ipsToCheck {
+		// We only check IPv4 addresses as they are the most common in these blocklists.
+		ipv4 := currentIP.To4()
+		if ipv4 == nil {
+			continue
+		}
+
+		// Reverse the IP address octets for the DNSBL query.
+		reversedIP := fmt.Sprintf("%d.%d.%d.%d", ipv4[3], ipv4[2], ipv4[1], ipv4[0])
+
+		for _, server := range config.MalwareProtection.DNSBLServers {
+			query := fmt.Sprintf("%s.%s", reversedIP, server)
+			// If the lookup returns any address, it means the IP is on the blocklist.
+			addrs, err := resolver.LookupHost(context.Background(), query)
+			if err != nil {
+				if dnsErr, ok := err.(*net.DNSError); ok && dnsErr.IsNotFound {
+					// This is the expected result for a clean IP, so we continue to the next server.
+					continue
+				}
+				// Any other error is a network or configuration problem that should be reported.
+				return false, fmt.Errorf("DNSBL lookup failed for %s: %w", query, err)
+			}
+			if len(addrs) > 0 {
+				slogger.Warn("Blocked URL due to DNSBL match", "url", urlToCheck, "ip", currentIP.String(), "dnsbl_server", server)
+				return true, nil
+			}
+		}
+	}
+
+	if slogger != nil {
+		slogger.Debug("URL passed DNSBL check", "url", urlToCheck)
+	}
+	return false, nil
 }
 
 func lowRAM() bool {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	return m.Sys > config.MaxRAM
+	return config.LowRAM
 }
 
-func findFolderDefaultLocations(folder string) (path string) {
-	if _, err := os.Stat(filepath.Join(".", folder)); !os.IsNotExist(err) {
-		return filepath.Join(".", folder)
-	}
-	possibleDirs := os.Getenv("GOPATH")
-	if possibleDirs == "" {
-		possibleDirs = build.Default.GOPATH
-	}
-	var dirs []string
-	if runtime.GOOS == "windows" {
-		dirs = strings.Split(possibleDirs, ";")
-	} else {
-		dirs = strings.Split(possibleDirs, ":")
-	}
-	for _, dir := range dirs {
-		if _, err := os.Stat(filepath.Join(dir, "src", "github.com", "7i", "shorter", folder)); !os.IsNotExist(err) {
-			// Found
-			return filepath.Join(dir, "src", "github.com", "7i", "shorter", folder)
+// findDataDir locates the data directory by searching in common locations.
+// It prioritizes the directory next to the executable, then the current working directory.
+func findDataDir(baseDirName string) (string, error) {
+	// 1. Check for path relative to the executable
+	exePath, err := os.Executable()
+	if err == nil {
+		exeDir := filepath.Dir(exePath)
+		relPath := filepath.Join(exeDir, baseDirName)
+		if _, err := os.Stat(relPath); err == nil {
+			// Found it next to the executable
+			return relPath, nil
 		}
 	}
 
-	return ""
+	// 2. If not found, check the current working directory
+	cwd, err := os.Getwd()
+	if err == nil {
+		cwdPath := filepath.Join(cwd, baseDirName)
+		if _, err := os.Stat(cwdPath); err == nil {
+			// Found it in the CWD
+			return cwdPath, nil
+		}
+	}
+
+	return "", fmt.Errorf("could not find data directory '%s' relative to executable or current working directory", baseDirName)
 }
 
-func compress(data string) (compressedData string, err error) {
+func compress(data []byte) (compressedData []byte, err error) {
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
-	if _, err := io.Copy(zw, strings.NewReader(data)); err != nil {
-		return "", err
+	if _, err := zw.Write(data); err != nil {
+		return nil, err
 	}
 	if err := zw.Close(); err != nil {
-		return "", err
+		return nil, err
 	}
-	return buf.String(), nil
+	return buf.Bytes(), nil
 }
 
-func decompress(data string) (decompressedData string, err error) {
-	var buf bytes.Buffer
-	zw, err := gzip.NewReader(strings.NewReader(data))
+func decompress(data []byte) (string, error) {
+	r, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return "", err
 	}
-	if _, err := io.Copy(&buf, zw); err != nil {
+	defer r.Close()
+	var b bytes.Buffer
+	if _, err := io.Copy(&b, r); err != nil {
 		return "", err
 	}
-	if err := zw.Close(); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
+	return b.String(), nil
 }
 
-func returnDecompressed(lnk *Link, w http.ResponseWriter, r *http.Request) {
-	if lnk == nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Error: invalid lnk in request to returnDecompressed().")
+// logErrors will write the error to the log file and send an HTTP error to the user.
+func logErrors(w http.ResponseWriter, r *http.Request, userMessage string, statusCode int, logMessage string) {
+	if slogger != nil {
+		slogger.Error(logMessage,
+			slog.Int("status", statusCode),
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.String("remote_addr", r.RemoteAddr),
+			slog.String("user_agent", r.UserAgent()),
+			slog.String("referer", r.Referer()),
+		)
+	}
+
+	// Attempt to render the themed error page.
+	errorTmpl, ok := templateMap["error"]
+	if !ok {
+		// Fallback for safety if the template is missing.
+		http.Error(w, userMessage, statusCode)
 		return
 	}
-	dataReader, err := gzip.NewReader(strings.NewReader(lnk.Data))
-	if err == nil {
-		fmt.Println("ERROR in lnk.Data, misc.go line 203", lnk.Data) // DEBUG
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Error: invalid lnk.Data in request to returnDecompressed().")
-		return
+
+	w.WriteHeader(statusCode)
+	vars := errorPageVars{
+		StatusCode: statusCode,
+		Message:    userMessage,
 	}
-	if _, err = io.Copy(w, dataReader); err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Error: while decompresing in request to returnDecompressed().")
-		return
-	}
-	if err = dataReader.Close(); err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Error: closing dataReader in request to returnDecompressed().")
-		return
-	}
-	logOK(r, http.StatusOK)
+	// We don't check the error here, as we can't send another error response.
+	_ = errorTmpl.Execute(w, vars)
 }
 
-// logErrors will write the error to the log file, note that the arguments errStr and logStr should be escaped correctly with url.QueryEscape() if any user data is included.
-func logErrors(w http.ResponseWriter, r *http.Request, errStr string, statusCode int, logStr string) {
-	if logger != nil {
-		logger.Println("Request:\nStatuscode:", statusCode, url.QueryEscape(logStr), url.QueryEscape(errStr), "\n", url.QueryEscape(r.Host+r.RequestURI), url.QueryEscape(r.RemoteAddr), url.QueryEscape(r.UserAgent()), url.QueryEscape(r.Referer()), url.QueryEscape(fmt.Sprintf("%v", r.PostForm)), url.QueryEscape(fmt.Sprintf("%v", r.Body)), url.QueryEscape(fmt.Sprintf("%v", r.Form)))
-	}
-	http.Error(w, errServerError, statusCode)
-}
-
+// logOK logs successful requests.
 func logOK(r *http.Request, statusCode int) {
-	if logger != nil {
-		logger.Println("Request:\nStatuscode:", statusCode, url.QueryEscape(r.Host+r.RequestURI), url.QueryEscape(r.RemoteAddr), url.QueryEscape(r.UserAgent()), url.QueryEscape(r.Referer()), url.QueryEscape(fmt.Sprintf("%v", r.PostForm)), url.QueryEscape(fmt.Sprintf("%v", r.Body)), url.QueryEscape(fmt.Sprintf("%v", r.Form)))
+	if slogger != nil {
+		slogger.Info("handled request",
+			slog.Int("status", statusCode),
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.String("remote_addr", r.RemoteAddr),
+		)
 	}
 }
 
-// fugly temp function
-func listActiveLinks(w http.ResponseWriter, r *http.Request) {
-	ba := sha256.Sum256([]byte(r.URL.RawQuery + config.Salt))
-	pwd := hex.EncodeToString(ba[:])
-	if pwd == config.HashSHA256 {
-		w.Header().Add("Content-Type", "text/plain")
-		resp := ""
-		for _, domain := range config.DomainNames {
-			resp += "Domain: " + domain + "\n"
-			resp += "Linklen 1:\n"
-			resp += getActiveList(&domainLinkLens[domain].LinkLen1)
-			resp += "Linklen 2:\n"
-			resp += getActiveList(&domainLinkLens[domain].LinkLen2)
-			resp += "Linklen 3:\n"
-			resp += getActiveList(&domainLinkLens[domain].LinkLen3)
-			resp += "Custome Links:\n"
-			resp += getActiveList(&domainLinkLens[domain].LinkCustom)
-		}
+//go:embed embedded/index.default.tmpl
+var defaultIndexHTMLFormat string
 
-		fmt.Fprint(w, resp)
-	} else {
-		http.Error(w, errServerError, http.StatusInternalServerError)
-	}
-}
+//go:embed embedded/showLink.default.tmpl
+var defaultShowLinkHTML string
 
-func getActiveList(l *LinkLen) (resp string) {
-	l.Mutex.Lock()
-	next := *l.NextClear
-	stop := false
-	for !stop {
-		resp += "Domain: " + l.Domain + " Key: " + next.Key + " LinkType: " + next.LinkType + " IsCompressed: " + fmt.Sprintf("%v", next.IsCompressed) + "Timeout:" + next.Timeout.String() + "Data: "
-		if next.IsCompressed {
-			resp += url.QueryEscape(next.Data) + "\n"
-		} else {
-			resp += next.Data + "\n"
-		}
-		if next.NextClear != nil {
-			next = *next.NextClear
-		} else {
-			stop = true
-		}
-	}
-	l.Mutex.Unlock()
-	return
-}
+//go:embed embedded/showText.default.tmpl
+var defaultShowTextHTML string
+
+//go:embed embedded/error.default.tmpl
+var defaultErrorHTML string
 
 func initTemplates() {
-	// defaultIndex contains the hardcoded fallback for the index page
-	defaultIndex := "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><meta name=\"description\" content=\"Simple temporary URL shortener. Also supports temporary text blobs. 1-3 chars long or custom words.\"><meta name=\"Keywords\" content=\"temporary, temp, shortener, expiring, URL, link, redirect, generator\"><title>Temporary URL shortener</title><link rel=\"icon\" type=\"image/png\" href=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABSUlEQVQ4jZ2Tu0oDURCG90myKwERC8FKfAAfwdZCsU0bmwhWglY2Ad2zRhS0sUshsUiRRjQgMQYEG20khezZZO+5bD6LQGJINpoUfzPDfDNz5vxKQpj7qrBCTUhmkSqsUNWtjKIJ2Zq1eADRZajMWrR1Z3Py7LN2baEJiaIJSbbiYwbRVB0+emhC0gwjAPSqPwTo1QCv3RtTq9sDoBFGrFz2O+4UbLIVn/WbXxPEqVxvA3Bc9gaxzXyTVNEZXWGSdu9tAL79iOWLYbzw2QJgu+DEA5KG5F12ADh48EZy/wKkSy4AX06XxXM5G2ApJ6m7XQD2Su4Y/E/A0ZMHwEejS9IYn24qYPXKwm7175wqOhMfdyrAeA0AeDM7LMRcJxaQNCSnLz65WsBmvhn7N9Ill1wtYOO20QfM48SBmYQVKomzOe2sy1DVzcwP7InxY4zEPaQAAAAASUVORK5CYII=\"><link rel=\"stylesheet\" type=\"text/css\" href=\"shorter.css\" integrity=\"sha256-Q1KumqswQnGssQv5JsnHhB4U20pPESF8eVZw9sPxm7Y=\" crossorigin=\"anonymous\"></head><body><div class=\"content\"><div><div class=\"header\"><img src=\"logo.png\"><h1>Temp Url shortener</h1></div><form id=\"shortener\" method=\"POST\" enctype=\"multipart/form-data\"><div class=\"radio-box\"><input type=\"radio\" name=\"len\" id=\"hideCustomKey1\" value=\"1\" checked><label for=\"len\">Length 1: valid for 24h</label><input type=\"radio\" name=\"len\" id=\"hideCustomKey2\" value=\"2\"><label for=\"len\">Length 2: valid for 7d</label><input type=\"radio\" name=\"len\" id=\"hideCustomKey3\" value=\"3\"><label for=\"len\">Length 3: valid for 60d</label><input type=\"radio\" name=\"len\" id=\"showCustomKey\" value=\"custom\"><label for=\"len\">Custom key (4-64 chars): valid for 30d</label><div id=\"customDiv\"><span>Custom key:</span><input type=\"text\" name=\"custom\" class=\"inputbox\" placeholder=\"Your Custom Key Here\"></div></div><div class=\"radio-box\"><input type=\"radio\" name=\"requestType\" id=\"showURL\" value=\"url\" checked><label for=\"requestType\">Create temporary URL</label><input type=\"radio\" name=\"requestType\" id=\"showText\" value=\"text\"><label for=\"requestType\">Temporary text dump</label><div id=\"urlDiv\"><span>Submit URL to shorten:</span><input type=\"text\" name=\"url\" class=\"inputbox\" placeholder=\"Your URL Here\"></div><div id=\"textDiv\"><span>Submit text to temporarly save:</span><textarea form=\"shortener\" rows=\"7\" cols=\"80\" name=\"text\"></textarea></div></div><input type=\"submit\"></form></div><div class=\"info\"><span>Pre Alpha test site, links will be cleared during development without notice.</span></div><div class=\"tos\"><input id=\"ToS\" type=\"radio\" name=\"ToS\" /><label for=\"ToS\">Terms of Service</label><div id=\"ToSDiv\">The 7i service may not be used for any unlawful activities including but not limited to <br>scamming, fraud, transmission of viruses, trojan horses, or other malware.<br>7i reserves the right to modify anything in the 7i service without any prior notice including<br>but not limited to shutting down the service or deleting any content generated by any party.<br>By using the 7i service you acknowledge that any data sent to the 7i service will be provided <br>under the Zero-Clause BSD license (https://opensource.org/licenses/0BSD) and that you have <br>the right to upload the data. <br><br>THE 7I SERVICE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR <br>IMPLIED. USE OF THE 7I SERVICES IS SOLELY AT YOUR OWN RISK. IN NO EVENT SHALL THE <br>AUTHORS, 7I OR THE PROVIDER OF THE 7I SERVICE BE LIABLE FOR ANY CLAIM, DAMAGES <br>OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, <br>ARISING FROM, OUT OF OR IN CONNECTION WITH THE SERVICE OR SOFTWARE OR THE USE <br>OR OTHER DEALINGS IN THE SERVICE OR SOFTWARE. 7I TRIES TO LIMIT ANY UNLAWFUL <br>ACTIVITIES BY ITS USERS BUT DOES NOT WARRANT THAT THE 7I SERVICE IS SECURE, FREE <br>OF VIRUSES OR OTHER HARMFUL COMPONENTS</div></div></div></body></html>"
-	// defaultShowLink contains the hardcoded fallback for the showLink page
-	defaultShowLink := "<!DOCTYPE html><html lang=\"en\"><head><link rel=\"stylesheet\" type=\"text/css\" href=\"shorter.css\"></head><body><div class=\"content\"><div class=\"tos\">Temporary link:<br><H1><a href=\"{{.Data}}\">{{.Data}}</a></H1><br>This link will be removed {{.Timeout}}</div><div class=\"info\">Please only navigate to the link if you trust the person that generated the link.</div><div class=\"tos\">To create your own temporary links please visit <a href=\"{{.Domain}}\">{{.Domain}}</a></div></div></body></html>"
-
 	// templateMap should be used as read only after initTemplates() has returned
 	templateMap = make(map[string]*template.Template)
-	// Create index page
-	loadTemplate("index", defaultIndex)
-	// Create page for showing links
-	loadTemplate("showLink", defaultShowLink)
+
+	// Create index page from embedded default, or custom file if it exists.
+	loadTemplate("index", defaultIndexHTMLFormat)
+	// Create page for showing links from embedded default, or custom file if it exists.
+	loadTemplate("showLink", defaultShowLinkHTML)
+	// Create page for showing text dumps from embedded default, or custom file if it exists.
+	loadTemplate("showText", defaultShowTextHTML)
+	// Create a generic error page.
+	loadTemplate("error", defaultErrorHTML)
 }
 
 func loadTemplate(templateName, defaultTmplStr string) {
-	defaultTmpl := template.Must(template.New(templateName + ".tmpl").Parse(defaultTmplStr))
+	// The location for user-provided custom templates.
+	templatePath := filepath.Join(config.BaseDir, "templates", templateName+".tmpl")
 
-	for _, domain := range config.DomainNames {
-		tmpl, err := template.ParseFiles(filepath.Join(config.BaseDir, domain, templateName+".tmpl"))
-		if err != nil {
-			if logger != nil {
-				logger.Println("Missing /" + domain + "/" + templateName + ".tmpl in Template dir, fallback to default " + templateName + ".tmpl with key: " + domain + "#" + templateName)
+	// Try to parse the custom template file from disk.
+	tmpl, err := template.ParseFiles(templatePath)
+	if err != nil {
+		// If the file doesn't exist or fails to parse, fall back to the embedded default.
+		tmpl = template.Must(template.New(templateName).Parse(defaultTmplStr))
+	} else if slogger != nil {
+		slogger.Info("Successfully loaded custom template", "path", templatePath)
+	}
+
+	// Store the loaded or default template in the map with a simple key.
+	templateMap[templateName] = tmpl
+}
+
+func initImages() {
+	ImageMap = make(map[string][]byte)
+	imageDir := filepath.Join(config.BaseDir, "images")
+
+	files, err := os.ReadDir(imageDir)
+	if err != nil {
+		if slogger != nil {
+			slogger.Warn("Error reading image directory, images may not be available", "path", imageDir, "error", err)
+		}
+		// If we can't read the directory, we stop. This avoids using any old, hardcoded fallbacks.
+		return
+	}
+
+	for _, file := range files {
+		// We only care about files, not subdirectories
+		if file.IsDir() {
+			continue
+		}
+
+		fileName := file.Name()
+		// Load only common image types to avoid loading other files by mistake
+		if strings.HasSuffix(fileName, ".png") || strings.HasSuffix(fileName, ".ico") || strings.HasSuffix(fileName, ".svg") {
+			filePath := filepath.Join(imageDir, fileName)
+			data, err := os.ReadFile(filePath)
+			if err != nil {
+				slogger.Error("Error reading image file", "path", filePath, "error", err)
+				continue // Skip this file and try the next one
 			}
-			templateMap[domain+"#"+templateName] = defaultTmpl
-		} else {
-			logger.Println("Template key value: ", domain+"#"+templateName)
-			templateMap[domain+"#"+templateName] = tmpl
+			ImageMap[fileName] = data
+			if slogger != nil {
+				slogger.Info("Successfully loaded image", "name", fileName, "size_bytes", len(data))
+			}
 		}
 	}
 }

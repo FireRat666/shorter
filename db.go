@@ -1,288 +1,116 @@
 package main
 
 import (
-	"bytes"
-	"encoding/gob"
-	"io/ioutil"
-	"os"
-	"path/filepath"
+	"context"
+	"database/sql"
+	"fmt"
 	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib" // PostgreSQL driver for database/sql
 )
 
-// Fugly solution, TODO switch to real DB like bolt
-func setupDB() {
+var db *sql.DB // Global database connection pool
 
-	if logger != nil {
-		logger.Println("Reading in links and data from db")
-	}
-	for _, domain := range config.DomainNames {
-		restoreLinkLen(&domainLinkLens[domain].LinkLen1, "len1", domain)
-		restoreLinkLen(&domainLinkLens[domain].LinkLen2, "len2", domain)
-		restoreLinkLen(&domainLinkLens[domain].LinkLen3, "len3", domain)
-		restoreLinkLen(&domainLinkLens[domain].LinkCustom, "custom", domain)
-	}
-}
-
-func restoreLinkLen(l *LinkLen, typ, domain string) {
-	var backupLinkLen []Link
-	fileName := "backupdb-" + domain + "-" + typ + ".gob"
-
-	d, err := ioutil.ReadFile(filepath.Join(config.BaseDir, domain, fileName))
-	if err != nil && logger != nil {
-		logger.Println(err, "ReadFile - Skipping "+fileName)
-	} else {
-		buf := bytes.NewBuffer(d)
-		dec := gob.NewDecoder(buf)
-		err := dec.Decode(&backupLinkLen)
-		if err != nil && logger != nil {
-			logger.Println(err, "Unmarshal - Skipping"+fileName)
-		} else {
-			if len(backupLinkLen) > 0 && backupLinkLen[0].Key != "" {
-				l.NextClear = &backupLinkLen[0]
-				l.EndClear = &backupLinkLen[len(backupLinkLen)-1]
-				l.Links = len(backupLinkLen)
-				l.LinkMap[backupLinkLen[0].Key] = &backupLinkLen[0]
-				delete(l.FreeMap, backupLinkLen[0].Key)
-			}
-			for i := 1; i < len(backupLinkLen); i++ {
-				if backupLinkLen[i].Key != "" {
-					l.LinkMap[backupLinkLen[i].Key] = &backupLinkLen[i]
-					backupLinkLen[i-1].NextClear = &backupLinkLen[i]
-					delete(l.FreeMap, backupLinkLen[i].Key)
-				}
-			}
-		}
-	}
-}
-
-// part 2 of the fugly solution
-func BackupRoutine() {
-
-	for {
-		time.Sleep(time.Minute * 30)
-
-		for _, domain := range config.DomainNames {
-			saveBackup(&domainLinkLens[domain].LinkLen1, "len1", domain)
-			saveBackup(&domainLinkLens[domain].LinkLen2, "len2", domain)
-			saveBackup(&domainLinkLens[domain].LinkLen3, "len3", domain)
-			saveBackup(&domainLinkLens[domain].LinkCustom, "custom", domain)
-		}
-
-		logger.Println("Finished saving new backup")
-	}
-}
-
-func saveBackup(l *LinkLen, typ, domain string) {
+// setupDB connects to the PostgreSQL database and ensures the schema is created.
+func setupDB(databaseURL string) error {
 	var err error
-	var backupLinkLen []Link
-	filename := "backupdb-" + domain + "-" + typ + ".gob"
-
-	if l == nil {
-		logger.Println("*LinkLen is nil, skipping ", filename)
-		return
-	}
-	if l.NextClear == nil {
-		logger.Println("l.NextClear is nil, skipping ", filename)
-		return
+	if databaseURL == "" {
+		return fmt.Errorf("DatabaseURL is not set in the config file")
 	}
 
-	l.Mutex.Lock()
-
-	next := *l.NextClear
-
-	stop := false
-	for !stop {
-		backupLinkLen = append(backupLinkLen, next)
-		if next.NextClear != nil {
-			next = *next.NextClear
-		} else {
-			stop = true
-		}
-	}
-	l.Mutex.Unlock()
-
-	var backupBuffer bytes.Buffer
-	enc := gob.NewEncoder(&backupBuffer)
-	err = enc.Encode(backupLinkLen)
+	db, err = sql.Open("pgx", databaseURL)
 	if err != nil {
-		logger.Println(err, "Error while saving backup in enc.Encode()")
+		return fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	backupLinkLen = nil
-
-	if err = os.WriteFile(filepath.Join(config.BaseDir, domain, filename), backupBuffer.Bytes(), 0644); err != nil && logger != nil {
-		logger.Println(err, "failed to save DB")
+	// Check that the connection is working
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err = db.PingContext(ctx); err != nil {
+		return fmt.Errorf("database ping failed: %w", err)
 	}
 
-	logger.Println("Backed up:", filename)
-}
+	// Create the links table if it doesn't already exist
+	schema := `
+	CREATE TABLE IF NOT EXISTS links (
+		key TEXT PRIMARY KEY,
+		domain TEXT NOT NULL,
+		link_type TEXT NOT NULL,
+		data BYTEA NOT NULL,
+		is_compressed BOOLEAN NOT NULL,
+		times_allowed INT NOT NULL,
+		times_used INT DEFAULT 0 NOT NULL,
+		expires_at TIMESTAMPTZ NOT NULL,
+		created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+	);`
 
-// New BoltDB restore
-//startRestoreDB(&domainLinkLens[domain].LinkLen1, domain, "linkLen1")
-//startRestoreDB(&domainLinkLens[domain].LinkLen2, domain, "linkLen2")
-//startRestoreDB(&domainLinkLens[domain].LinkLen3, domain, "linkLen3")
-//startRestoreDB(&domainLinkLens[domain].LinkCustom, domain, "linkCustom")
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-// new bolt implementation of backup ============
-// Config2 type
-
-/*
-type Config2 struct {
-	Height   float64   `json:"height"`
-	Birthday time.Time `json:"birthday"`
-}
-
-// Entry type
-type Entry struct {
-	Calories int    `json:"calories"`
-	Food     string `json:"food"`
-}
-
-func startRestoreDB(l *LinkLen, domain, linkLen string) {
-	db := setupDB2(domain)
-	defer db.Close()
-	restoreDBLinkLen(db, domain)
-}
-
-// restoreDBLinkLen will read out all links for all linkLen from the bolt.DB for the specified domain and populate the domainLinkLens map
-func restoreDBLinkLen(db *bolt.DB, domain string) {
-	err := db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(domain)).Bucket([]byte("linkLen1"))
-		b.ForEach(func(k, v []byte) error {
-			// TODO Restore entries from DB HERE
-
-			var lnk Link
-			err := json.Unmarshal(v, &lnk)
-			if err != nil {
-				logger.Fatalln("Unable to restore link,", err)
-			}
-			l1 := &domainLinkLens[domain].LinkLen1
-
-			l1.Add(&lnk)
-
-
-
-			if len(backupLinkLen) > 0 && backupLinkLen[0].Key != "" {
-				l.NextClear = &backupLinkLen[0]
-				l.EndClear = &backupLinkLen[len(backupLinkLen)-1]
-				l.Links = len(backupLinkLen)
-				l.LinkMap[backupLinkLen[0].Key] = &backupLinkLen[0]
-				delete(l.FreeMap, backupLinkLen[0].Key)
-			}
-			for i := 1; i < len(backupLinkLen); i++ {
-				if backupLinkLen[i].Key != "" {
-					l.LinkMap[backupLinkLen[i].Key] = &backupLinkLen[i]
-					backupLinkLen[i-1].NextClear = &backupLinkLen[i]
-					delete(l.FreeMap, backupLinkLen[i].Key)
-				}
-			}
-
-			fmt.Println(string(k), string(v))
-			return nil
-		})
-		return nil
-	})
+	_, err = db.ExecContext(ctx, schema)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("failed to create schema: %w", err)
 	}
+	return nil
 }
 
-func setupDB2(domain string) *bolt.DB {
+// createLinkInDB inserts a new link record into the database.
+func createLinkInDB(ctx context.Context, link Link) error {
+	query := `
+		INSERT INTO links (key, domain, link_type, data, is_compressed, times_allowed, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7);`
 
-	db, err := bolt.Open(filepath.Join(config.BaseDir, domain, domain+".db"), 0600, nil)
-
-	if err != nil && logger != nil {
-		logger.Fatalln("could not open db,", err)
-	}
-	err = db.Update(func(tx *bolt.Tx) error {
-		root, err := tx.CreateBucketIfNotExists([]byte(domain))
-		if err != nil {
-			logger.Fatalln("could not create root bucket:", err)
-		}
-		_, err = root.CreateBucketIfNotExists([]byte("linkLen1"))
-		if err != nil {
-			logger.Fatalln("could not create linkLen1 bucket:", err)
-		}
-		_, err = root.CreateBucketIfNotExists([]byte("linkLen2"))
-		if err != nil {
-			logger.Fatalln("could not create linkLen2 bucket:", err)
-		}
-		_, err = root.CreateBucketIfNotExists([]byte("linkLen3"))
-		if err != nil {
-			logger.Fatalln("could not create linkLen3 bucket:", err)
-		}
-		_, err = root.CreateBucketIfNotExists([]byte("linkCustom"))
-		if err != nil {
-			logger.Fatalln("could not create linkCustom bucket:", err)
-		}
-		return nil
-	})
+	_, err := db.ExecContext(ctx, query, link.Key, link.Domain, link.LinkType, link.Data, link.IsCompressed, link.TimesAllowed, link.ExpiresAt)
 	if err != nil {
-		logger.Fatalln("could not set up buckets,", err)
+		return fmt.Errorf("failed to insert link into database: %w", err)
 	}
-	logger.Println("")
-	fmt.Println("DB Setup for", domain, "Done")
-	return db
+	return nil
 }
 
-func setConfig2(db *bolt.DB, Config2 Config2) error {
-	confBytes, err := json.Marshal(Config2)
+// getLinkFromDB retrieves a link from the database by its key, and if found,
+// it atomically increments the `times_used` counter.
+// It returns nil if the link is not found, has expired, or has been used too many times.
+func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
+	// Use a transaction to ensure the SELECT and UPDATE are atomic.
+	// This prevents race conditions where two requests could try to use the last
+	// available link at the same time.
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("could not marshal Config2 json: %v", err)
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	err = db.Update(func(tx *bolt.Tx) error {
-		err = tx.Bucket([]byte("DB")).Put([]byte("CONFIG"), confBytes)
-		if err != nil {
-			return fmt.Errorf("could not set Config2: %v", err)
-		}
-		return nil
-	})
-	fmt.Println("Set Config2")
-	return err
-}
+	// Defer a rollback. If the transaction is successfully committed, this is a no-op.
+	defer tx.Rollback()
 
-func addWeight(db *bolt.DB, weight string, date time.Time) error {
-	err := db.Update(func(tx *bolt.Tx) error {
-		err := tx.Bucket([]byte("DB")).Bucket([]byte("WEIGHT")).Put([]byte(date.Format(time.RFC3339)), []byte(weight))
-		if err != nil {
-			return fmt.Errorf("could not insert weight: %v", err)
-		}
-		return nil
-	})
-	fmt.Println("Added Weight")
-	return err
-}
+	link := &Link{}
+	// The query checks for validity (not expired, not overused) and locks the row for updating.
+	querySelect := `
+		SELECT key, domain, link_type, data, is_compressed, times_allowed, times_used, expires_at, created_at
+		FROM links
+		WHERE key = $1 AND domain = $2 AND expires_at > NOW() AND (times_allowed = 0 OR times_used < times_allowed)
+		FOR UPDATE;`
 
-func addEntry(db *bolt.DB, calories int, food string, date time.Time) error {
-	entry := Entry{Calories: calories, Food: food}
-	entryBytes, err := json.Marshal(entry)
+	err = tx.QueryRowContext(ctx, querySelect, key, domain).Scan(
+		&link.Key,
+		&link.Domain,
+		&link.LinkType,
+		&link.Data,
+		&link.IsCompressed,
+		&link.TimesAllowed,
+		&link.TimesUsed,
+		&link.ExpiresAt,
+		&link.CreatedAt,
+	)
+
 	if err != nil {
-		return fmt.Errorf("could not marshal entry json: %v", err)
-	}
-	err = db.Update(func(tx *bolt.Tx) error {
-		err := tx.Bucket([]byte("DB")).Bucket([]byte("ENTRIES")).Put([]byte(date.Format(time.RFC3339)), entryBytes)
-		if err != nil {
-			return fmt.Errorf("could not insert entry: %v", err)
+		if err == sql.ErrNoRows {
+			return nil, nil // No link found, not an error.
 		}
+		return nil, fmt.Errorf("failed to get link from database: %w", err)
+	}
 
-		return nil
-	})
-	fmt.Println("Added Entry")
-	return err
+	// Increment the usage count for the retrieved link.
+	queryUpdate := `UPDATE links SET times_used = times_used + 1 WHERE key = $1;`
+	if _, err = tx.ExecContext(ctx, queryUpdate, key); err != nil {
+		return nil, fmt.Errorf("failed to update link usage: %w", err)
+	}
+
+	// Commit the transaction to save the changes.
+	return link, tx.Commit()
 }
-*/

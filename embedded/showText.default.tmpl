@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta name="color-scheme" content="dark">
+    <link rel="stylesheet" type="text/css" href="shorter.css">
+    <title>Text Dump</title>
+</head>
+<body>
+    <div class="content">
+        <div class="tos">
+            <p>Temporary text dump. This content will be removed on {{.Timeout}}.
+            {{if gt .TimesAllowed 0}}<br>It can be viewed {{.RemainingUses}} more time(s).{{end}}
+            </p>
+            <textarea id="text-dump-content" class="text-dump-box" readonly rows="15">{{.Data}}</textarea>
+            <br>
+            <button id="copy-button" class="copy-button">Copy to Clipboard</button>
+        </div>
+        <div class="info">To create your own temporary links or text dumps, please visit <a href="{{.Domain}}">{{.Domain}}</a></div>
+    </div>
+    <script src="/js/showText.js" defer></script>
+</body>
+</html>

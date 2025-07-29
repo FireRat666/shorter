@@ -1,16 +1,16 @@
 # Domainnames for the shorter service
 # On Render, you should replace this with your actual service URL (e.g., "your-app-name.onrender.com").
 DomainNames:
-  - "127.0.0.1:8081"
-  - "localhost:8081"
+  - "127.0.0.1:8080"
+  - "localhost:8080"
 
 # AddressPort is overridden by the PORT environment variable on Render. This is for local development.
-AddressPort: "127.0.0.1:8081"
+AddressPort: "127.0.0.1:8080"
 
 # DatabaseURL is overridden by the DATABASE_URL environment variable on Render for security.
 # This value can be used for local development.
 # Example: "postgres://user:password@localhost:5432/shorter_db"
-DatabaseURL: "postgres://e16ecdd05807e8ff66a838d8d57f45d2c685047ac6710f630722d7da2bc16d69:sk_TghTuXhWhDK3vyaWOl9gV@db.prisma.io:5432/?sslmode=require"
+DatabaseURL: ""
 
 # BaseDir should be a relative path to your data directory.
 BaseDir: "shorterdata"
