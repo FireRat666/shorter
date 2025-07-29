@@ -50,10 +50,28 @@
                 <label for="subdomain">Subdomain Name:</label>
                 <input type="text" id="subdomain" name="subdomain" class="inputbox" placeholder="user1.your-app.com" required>
 
-                <label for="link_len1_timeout">Timeout (Length 1):</label>
+                <label for="link_len1_timeout">Timeout (Len 1):</label>
                 <input type="text" id="link_len1_timeout" name="link_len1_timeout" class="inputbox" value="{{.Defaults.LinkLen1Timeout}}">
+                <label for="link_len1_display">Display (Len 1):</label>
+                <input type="text" id="link_len1_display" name="link_len1_display" class="inputbox" value="{{.Defaults.LinkLen1Display}}">
 
-                <!-- More fields for other settings can be added here -->
+                <label for="link_len2_timeout">Timeout (Len 2):</label>
+                <input type="text" id="link_len2_timeout" name="link_len2_timeout" class="inputbox" value="{{.Defaults.LinkLen2Timeout}}">
+                <label for="link_len2_display">Display (Len 2):</label>
+                <input type="text" id="link_len2_display" name="link_len2_display" class="inputbox" value="{{.Defaults.LinkLen2Display}}">
+
+                <label for="link_len3_timeout">Timeout (Len 3):</label>
+                <input type="text" id="link_len3_timeout" name="link_len3_timeout" class="inputbox" value="{{.Defaults.LinkLen3Timeout}}">
+                <label for="link_len3_display">Display (Len 3):</label>
+                <input type="text" id="link_len3_display" name="link_len3_display" class="inputbox" value="{{.Defaults.LinkLen3Display}}">
+
+                <label for="custom_timeout">Timeout (Custom):</label>
+                <input type="text" id="custom_timeout" name="custom_timeout" class="inputbox" value="{{.Defaults.CustomTimeout}}">
+                <label for="custom_display">Display (Custom):</label>
+                <input type="text" id="custom_display" name="custom_display" class="inputbox" value="{{.Defaults.CustomDisplay}}">
+
+                <label for="max_uses">Max Uses:</label>
+                <input type="number" id="max_uses" name="max_uses" class="inputbox" value="{{.Defaults.LinkAccessMaxNr}}" min="0">
 
                 <input type="submit" value="Create Subdomain" class="admin-submit-button">
             </form>
