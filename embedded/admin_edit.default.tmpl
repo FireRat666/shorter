@@ -41,6 +41,45 @@
             </form>
             <a href="/admin" style="display: block; margin-top: 1em;">Back to Admin Panel</a>
         </div>
+
+        <div class="tos">
+            <h2>Manage Static Links</h2>
+            {{if .Config.StaticLinks}}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Key</th>
+                            <th>Destination URL</th>
+                            <th>Delete</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range $key, $url := .Config.StaticLinks}}
+                        <tr>
+                            <td>{{$key}}</td>
+                            <td>{{$url}}</td>
+                            <td>
+                                <form method="POST" action="/admin/edit?domain={{$.Domain}}">
+                                    <input type="hidden" name="action" value="delete_static_link">
+                                    <input type="hidden" name="static_key" value="{{$key}}">
+                                    <input type="submit" value="Delete" class="delete-button">
+                                </form>
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            {{end}}
+            <h3 style="margin-top: 2em;">Add New Static Link</h3>
+            <form class="admin-form" method="POST" action="/admin/edit?domain={{.Domain}}">
+                <input type="hidden" name="action" value="add_static_link">
+                <label for="new_static_key">Key:</label>
+                <input type="text" id="new_static_key" name="new_static_key" class="inputbox" required>
+                <label for="new_static_url">Destination URL:</label>
+                <input type="text" id="new_static_url" name="new_static_url" class="inputbox" required>
+                <input type="submit" value="Add Static Link" class="admin-submit-button">
+            </form>
+        </div>
     </div>
 </body>
 </html>

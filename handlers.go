@@ -273,6 +273,12 @@ func handleAdminCreateSubdomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Add a hidden action field to the form so the handler knows what to do.
+	if r.FormValue("action") == "" {
+		// This is a hack to make the existing form work without modification.
+		r.Form.Set("action", "update_config")
+	}
+
 	// Parse form values into a config struct.
 	newConfig := parseSubdomainForm(r)
 	// Initialize with empty static links for a new subdomain.
@@ -345,43 +351,99 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 		logOK(r, http.StatusOK)
 
 	case http.MethodPost:
+		// Process form submissions for the edit page
 		if err := r.ParseForm(); err != nil {
 			logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Admin edit form parse error: "+err.Error())
 			return
 		}
-
-		subdomainName := r.FormValue("subdomain")
-		if subdomainName == "" {
-			logErrors(w, r, "Subdomain name cannot be empty.", http.StatusBadRequest, "Admin submitted empty subdomain name on edit")
+		domain := r.URL.Query().Get("domain")
+		if domain == "" {
+			logErrors(w, r, "Missing domain parameter.", http.StatusBadRequest, "Admin edit action submitted without domain")
 			return
 		}
 
-		// Parse all form values.
-		updatedConfig := parseSubdomainForm(r)
-
-		// Preserve existing static links, as they are not editable in this form.
-		if existing, ok := config.Subdomains[subdomainName]; ok {
-			updatedConfig.StaticLinks = existing.StaticLinks
-		} else {
-			updatedConfig.StaticLinks = make(map[string]string)
+		switch r.FormValue("action") {
+		case "update_config":
+			handleAdminUpdateConfig(w, r, domain)
+		case "add_static_link":
+			handleAdminAddStaticLink(w, r, domain)
+		case "delete_static_link":
+			handleAdminDeleteStaticLink(w, r, domain)
+		default:
+			logErrors(w, r, "Invalid admin action.", http.StatusBadRequest, "Unknown admin edit action submitted")
 		}
-
-		// Update the in-memory config.
-		config.Subdomains[subdomainName] = updatedConfig
-
-		// Persist the changes to the database.
-		if err := saveSubdomainConfigToDB(r.Context(), subdomainName, updatedConfig); err != nil {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to save updated configuration to database: "+err.Error())
-			return
-		}
-
-		// Redirect back to the admin page to show the updated list.
-		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 
 	default:
 		addHeaders(w, r)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func handleAdminUpdateConfig(w http.ResponseWriter, r *http.Request, domain string) {
+	updatedConfig := parseSubdomainForm(r)
+
+	// Preserve existing static links, as they are not editable in this form.
+	if existing, ok := config.Subdomains[domain]; ok {
+		updatedConfig.StaticLinks = existing.StaticLinks
+	} else {
+		updatedConfig.StaticLinks = make(map[string]string)
+	}
+
+	// Update the in-memory config.
+	config.Subdomains[domain] = updatedConfig
+
+	// Persist the changes to the database.
+	if err := saveSubdomainConfigToDB(r.Context(), domain, updatedConfig); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to save updated configuration to database: "+err.Error())
+		return
+	}
+
+	// Redirect back to the admin page to show the updated list.
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func handleAdminAddStaticLink(w http.ResponseWriter, r *http.Request, domain string) {
+	key := r.FormValue("new_static_key")
+	destURL := r.FormValue("new_static_url")
+
+	if key == "" || destURL == "" {
+		logErrors(w, r, "Key and Destination URL cannot be empty.", http.StatusBadRequest, "Admin submitted empty static link field")
+		return
+	}
+
+	// Get the current config, add the new static link, and save it back.
+	subdomainCfg := getSubdomainConfig(domain)
+	subdomainCfg.StaticLinks[key] = destURL
+	config.Subdomains[domain] = subdomainCfg // Update in-memory config
+
+	if err := saveSubdomainConfigToDB(r.Context(), domain, subdomainCfg); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to add static link: "+err.Error())
+		return
+	}
+
+	// Redirect back to the edit page.
+	http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
+}
+
+func handleAdminDeleteStaticLink(w http.ResponseWriter, r *http.Request, domain string) {
+	key := r.FormValue("static_key")
+	if key == "" {
+		logErrors(w, r, "Static link key cannot be empty.", http.StatusBadRequest, "Admin delete static link request missing key")
+		return
+	}
+
+	// Get the current config, delete the static link, and save it back.
+	subdomainCfg := getSubdomainConfig(domain)
+	delete(subdomainCfg.StaticLinks, key)
+	config.Subdomains[domain] = subdomainCfg // Update in-memory config
+
+	if err := saveSubdomainConfigToDB(r.Context(), domain, subdomainCfg); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete static link: "+err.Error())
+		return
+	}
+
+	// Redirect back to the edit page.
+	http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
 }
 
 func handleCSPReport(w http.ResponseWriter, r *http.Request) {
