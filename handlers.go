@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func handleRoot(mux *http.ServeMux) {
@@ -187,6 +189,52 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 	// If the request is not handled previously redirect to index, note that Host has been validated earlier
 	logOK(r, http.StatusSeeOther)
 	http.Redirect(w, r, scheme+"://"+r.Host, http.StatusSeeOther)
+}
+
+// basicAuth is a middleware that protects handlers with Basic Authentication.
+func basicAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Check if admin credentials are configured. If not, disable the endpoint.
+		if config.Admin.User == "" || config.Admin.PassHash == "" {
+			http.NotFound(w, r)
+			return
+		}
+
+		user, pass, ok := r.BasicAuth()
+
+		// Check if credentials were provided and if they match the configured user.
+		if !ok || user != config.Admin.User {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Compare the provided password with the stored bcrypt hash.
+		err := bcrypt.CompareHashAndPassword([]byte(config.Admin.PassHash), []byte(pass))
+		if err != nil {
+			// Password does not match.
+			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// If authentication is successful, call the next handler.
+		next.ServeHTTP(w, r)
+	}
+}
+
+// handleAdmin serves the admin dashboard page.
+func handleAdmin(w http.ResponseWriter, r *http.Request) {
+	addHeaders(w, r)
+	adminTmpl, ok := templateMap["admin"]
+	if !ok {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin template")
+		return
+	}
+
+	// For now, we don't pass any dynamic data.
+	_ = adminTmpl.Execute(w, nil)
+	logOK(r, http.StatusOK)
 }
 
 func handleCSPReport(w http.ResponseWriter, r *http.Request) {
