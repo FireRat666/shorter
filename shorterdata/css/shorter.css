@@ -279,3 +279,15 @@ input[type=submit].delete-button {
 input[type=submit].admin-submit-button {
     background-color: #097100;
 }
+
+.edit-button {
+    background-color: #007bff;
+    color: white;
+    padding: 0.5em 1em;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    margin-right: 0.5em;
+}
