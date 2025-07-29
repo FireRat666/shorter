@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"log/slog"
@@ -123,6 +124,26 @@ func main() {
 	err = setupDB(config.DatabaseURL)
 	if err != nil {
 		log.Fatalln("Database setup failed:", err)
+	}
+
+	// Load subdomains from the database, which will be merged with and override
+	// any settings with the same domain name from the config file.
+	dbSubdomains, err := loadSubdomainsFromDB(context.Background())
+	if err != nil {
+		// Log the error but don't fail startup. The app can run with config file subdomains.
+		if slogger != nil {
+			slogger.Error("Failed to load subdomains from database", "error", err)
+		}
+	} else if len(dbSubdomains) > 0 {
+		// Ensure the Subdomains map from the config file is initialized if it's nil.
+		if config.Subdomains == nil {
+			config.Subdomains = make(map[string]SubdomainConfig)
+		}
+		// Merge the database subdomains into the config, overwriting any duplicates.
+		for domain, subConfig := range dbSubdomains {
+			config.Subdomains[domain] = subConfig
+		}
+		slogger.Info("Successfully loaded and merged subdomains from database", "db_count", len(dbSubdomains), "total_count", len(config.Subdomains))
 	}
 
 	initResolver()
