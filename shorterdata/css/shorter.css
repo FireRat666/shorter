@@ -181,7 +181,7 @@ label[for="ToS"] {
 
 /* Add an expand/collapse icon to the TOS label */
 label[for="ToS"]::before {
-    content: '▶'; /* Right-pointing triangle for collapsed state */
+    content: '\25B6'; /* Right-pointing triangle for collapsed state */
     display: inline-block;
     margin-right: 0.5em;
     font-size: 0.8em;
@@ -200,7 +200,7 @@ input[id="ToS"]:checked~#ToSDiv {
 
 /* Change the icon when the checkbox is checked (expanded state) */
 input[id="ToS"]:checked + label::before {
-    content: '▼'; /* Down-pointing triangle for expanded state */
+    content: '\25BC'; /* Down-pointing triangle for expanded state */
 }
 
 .text-dump-box {
