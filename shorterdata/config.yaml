@@ -47,6 +47,14 @@ MalwareProtection:
   # Recommended for stability.
   CustomDNSServers: ["1.1.1.1:53", "8.8.8.8:53"]
 
+# Admin interface credentials.
+# User is the username.
+# PassHash should be a bcrypt hash of the desired password.
+# These should be overridden by environment variables for production.
+Admin:
+  User: "admin"
+  PassHash: "" # Generate a bcrypt hash for your password and place it here or in an env var.
+
 # Default settings are used for all domains unless overridden by a specific subdomain configuration.
 Defaults:
   LinkLen1Timeout: "1h"
