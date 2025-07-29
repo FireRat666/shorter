@@ -10,8 +10,30 @@
         <div class="header">
             <h1>Admin Panel</h1>
         </div>
-        <div class="info">
-            <p>Welcome, Admin. Subdomain management features will be added here.</p>
+        <div class="tos">
+            <h2>Configured Subdomains</h2>
+            {{if .Subdomains}}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Subdomain</th>
+                            <th>Link Timeout (Len 1)</th>
+                            <th>Static Links</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range $domain, $config := .Subdomains}}
+                        <tr>
+                            <td>{{$domain}}</td>
+                            <td>{{$config.LinkLen1Timeout}}</td>
+                            <td>{{len $config.StaticLinks}}</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            {{else}}
+                <p>No subdomains are currently configured.</p>
+            {{end}}
         </div>
     </div>
 </body>
