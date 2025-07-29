@@ -42,6 +42,18 @@ func addHeaders(w http.ResponseWriter, r *http.Request) {
 	if config.CSP != "" {
 		w.Header().Set("Content-Security-Policy", config.CSP)
 	}
+
+	// --- Additional Security Headers ---
+	// Prevent the browser from interpreting files as a different MIME type.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	// Prevent the page from being displayed in a frame, iframe, or object.
+	w.Header().Set("X-Frame-Options", "DENY")
+	// Control what information is sent with the Referer header.
+	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	// Enable the XSS filter in older browsers.
+	w.Header().Set("X-XSS-Protection", "1; mode=block")
+	// Note: HSTS (Strict-Transport-Security) is typically best handled by the load balancer
+	// or reverse proxy (like Render's) that terminates TLS.
 }
 
 // getSubdomainConfig returns the specific configuration for a given host,
