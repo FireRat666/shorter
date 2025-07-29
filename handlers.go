@@ -225,6 +225,12 @@ func basicAuth(next http.HandlerFunc) http.HandlerFunc {
 
 // handleAdmin serves the admin dashboard page.
 func handleAdmin(w http.ResponseWriter, r *http.Request) {
+	// Route request based on HTTP method.
+	if r.Method == http.MethodPost {
+		handleAdminCreateSubdomain(w, r)
+		return
+	}
+
 	addHeaders(w, r)
 	adminTmpl, ok := templateMap["admin"]
 	if !ok {
@@ -242,6 +248,43 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin template: "+err.Error())
 	}
 	logOK(r, http.StatusOK)
+}
+
+func handleAdminCreateSubdomain(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Admin form parse error: "+err.Error())
+		return
+	}
+
+	subdomainName := r.FormValue("subdomain")
+	len1Timeout := r.FormValue("link_len1_timeout")
+
+	// Basic validation
+	if subdomainName == "" {
+		logErrors(w, r, "Subdomain name cannot be empty.", http.StatusBadRequest, "Admin submitted empty subdomain name")
+		return
+	}
+	if _, err := time.ParseDuration(len1Timeout); err != nil {
+		logErrors(w, r, "Invalid timeout duration format.", http.StatusBadRequest, "Admin submitted invalid timeout: "+len1Timeout)
+		return
+	}
+
+	// Create the new subdomain configuration, inheriting from defaults.
+	newConfig := config.Defaults
+	newConfig.LinkLen1Timeout = len1Timeout
+	// For now, we only set the one field from the form.
+
+	// Add the new subdomain to the in-memory config.
+	config.Subdomains[subdomainName] = newConfig
+
+	// Persist the changes to the database.
+	if err := saveSubdomainConfigToDB(r.Context(), subdomainName, newConfig); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to save configuration to database: "+err.Error())
+		return
+	}
+
+	// Redirect back to the admin page to show the updated list.
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
 func handleCSPReport(w http.ResponseWriter, r *http.Request) {
