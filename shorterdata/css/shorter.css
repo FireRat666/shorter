@@ -269,10 +269,11 @@ th {
 input[type=submit].delete-button {
     background-color: #c00000; /* Red color for destructive action */
     color: white;
-    padding: 0.5em 1em;
+    padding: 0.2em 0.2em;
     border: none;
     border-radius: 4px;
     cursor: pointer;
+    width: auto; /* Override the default width: 100% */
 }
 
 /* Make the admin submit button rule more specific to ensure it's green */
@@ -281,13 +282,12 @@ input[type=submit].admin-submit-button {
 }
 
 .edit-button {
-    background-color: #007bff;
+    background-color: #097100;
     color: white;
-    padding: 0.5em 1em;
+    padding: 0.2em 0.2em;
     border: none;
     border-radius: 4px;
     cursor: pointer;
     text-decoration: none;
     display: inline-block;
-    margin-right: 0.5em;
 }
