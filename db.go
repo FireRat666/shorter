@@ -123,6 +123,51 @@ func deleteSubdomainFromDB(ctx context.Context, domain string) error {
 	return nil
 }
 
+// getLinksForDomain retrieves all active links for a specific domain, ordered by creation date.
+func getLinksForDomain(ctx context.Context, domain string) ([]Link, error) {
+	query := `
+		SELECT key, link_type, data, is_compressed, times_allowed, times_used, expires_at, created_at
+		FROM links
+		WHERE domain = $1 AND expires_at > NOW()
+		ORDER BY created_at DESC;`
+
+	rows, err := db.QueryContext(ctx, query, domain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query links for domain %s: %w", domain, err)
+	}
+	defer rows.Close()
+
+	var links []Link
+	for rows.Next() {
+		var link Link
+		link.Domain = domain // Set the domain since we're not selecting it
+		if err := rows.Scan(
+			&link.Key,
+			&link.LinkType,
+			&link.Data,
+			&link.IsCompressed,
+			&link.TimesAllowed,
+			&link.TimesUsed,
+			&link.ExpiresAt,
+			&link.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan link row: %w", err)
+		}
+		links = append(links, link)
+	}
+	return links, rows.Err()
+}
+
+// deleteLink removes a dynamic link from the database by its key and domain.
+func deleteLink(ctx context.Context, key, domain string) error {
+	query := `DELETE FROM links WHERE key = $1 AND domain = $2;`
+	_, err := db.ExecContext(ctx, query, key, domain)
+	if err != nil {
+		return fmt.Errorf("failed to delete link %s for domain %s: %w", key, domain, err)
+	}
+	return nil
+}
+
 // createLinkInDB inserts a new link record into the database.
 func createLinkInDB(ctx context.Context, link Link) error {
 	query := `

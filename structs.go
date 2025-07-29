@@ -112,6 +112,7 @@ type adminPageVars struct {
 type adminEditPageVars struct {
 	Domain string
 	Config SubdomainConfig
+	Links  []Link
 }
 
 // CSPReport represents the structure of a CSP violation report sent by the browser.

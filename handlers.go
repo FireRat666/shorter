@@ -326,12 +326,14 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Get the current config for this domain.
-		subdomainCfg, ok := config.Subdomains[domain]
+		// First, confirm that the subdomain is actually configured.
+		_, ok := config.Subdomains[domain]
 		if !ok {
 			logErrors(w, r, "Subdomain not found.", http.StatusNotFound, "Admin tried to edit non-existent subdomain: "+domain)
 			return
 		}
+		// Get the fully merged configuration for this domain to pre-fill the form correctly.
+		subdomainCfg := getSubdomainConfig(domain)
 
 		editTmpl, ok := templateMap["admin_edit"]
 		if !ok {
@@ -339,9 +341,16 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		links, err := getLinksForDomain(r.Context(), domain)
+		if err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve links for domain: "+err.Error())
+			return
+		}
+
 		pageVars := adminEditPageVars{
 			Domain: domain,
 			Config: subdomainCfg,
+			Links:  links,
 		}
 
 		addHeaders(w, r)
@@ -369,6 +378,8 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 			handleAdminAddStaticLink(w, r, domain)
 		case "delete_static_link":
 			handleAdminDeleteStaticLink(w, r, domain)
+		case "delete_dynamic_link":
+			handleAdminDeleteDynamicLink(w, r, domain)
 		default:
 			logErrors(w, r, "Invalid admin action.", http.StatusBadRequest, "Unknown admin edit action submitted")
 		}
@@ -450,6 +461,23 @@ func handleAdminDeleteStaticLink(w http.ResponseWriter, r *http.Request, domain 
 
 	if err := saveSubdomainConfigToDB(r.Context(), domain, subdomainCfg); err != nil {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete static link: "+err.Error())
+		return
+	}
+
+	// Redirect back to the edit page.
+	http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
+}
+
+func handleAdminDeleteDynamicLink(w http.ResponseWriter, r *http.Request, domain string) {
+	key := r.FormValue("link_key")
+	if key == "" {
+		logErrors(w, r, "Link key cannot be empty.", http.StatusBadRequest, "Admin delete dynamic link request missing key")
+		return
+	}
+
+	// Remove the link from the database.
+	if err := deleteLink(r.Context(), key, domain); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete link from database: "+err.Error())
 		return
 	}
 
