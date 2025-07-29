@@ -113,6 +113,16 @@ func saveSubdomainConfigToDB(ctx context.Context, domain string, subConfig Subdo
 	return err
 }
 
+// deleteSubdomainFromDB removes a subdomain's configuration from the database.
+func deleteSubdomainFromDB(ctx context.Context, domain string) error {
+	query := `DELETE FROM subdomain_configs WHERE domain = $1;`
+	_, err := db.ExecContext(ctx, query, domain)
+	if err != nil {
+		return fmt.Errorf("failed to delete subdomain %s: %w", domain, err)
+	}
+	return nil
+}
+
 // createLinkInDB inserts a new link record into the database.
 func createLinkInDB(ctx context.Context, link Link) error {
 	query := `
