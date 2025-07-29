@@ -411,6 +411,17 @@ func handleAdminAddStaticLink(w http.ResponseWriter, r *http.Request, domain str
 		return
 	}
 
+	// Prepend https:// if no scheme is present.
+	if !strings.HasPrefix(destURL, "http://") && !strings.HasPrefix(destURL, "https://") {
+		destURL = "https://" + destURL
+	}
+
+	// Validate the final URL structure.
+	if _, err := url.ParseRequestURI(destURL); err != nil {
+		logErrors(w, r, "The provided Destination URL appears to be invalid.", http.StatusBadRequest, "Invalid static link URL after normalization")
+		return
+	}
+
 	// Get the current config, add the new static link, and save it back.
 	subdomainCfg := getSubdomainConfig(domain)
 	subdomainCfg.StaticLinks[key] = destURL
