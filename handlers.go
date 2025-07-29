@@ -232,8 +232,14 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// For now, we don't pass any dynamic data.
-	_ = adminTmpl.Execute(w, nil)
+	// Prepare the data for the admin page template.
+	pageVars := adminPageVars{
+		Subdomains: config.Subdomains,
+	}
+
+	if err := adminTmpl.Execute(w, pageVars); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin template: "+err.Error())
+	}
 	logOK(r, http.StatusOK)
 }
 
