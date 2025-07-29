@@ -24,7 +24,9 @@ func setupDB(databaseURL string) error {
 	}
 
 	// Check that the connection is working
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Use a more generous timeout for initial setup, as remote connections can be slow.
+	// This timeout applies to both the ping and the schema creation.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	if err = db.PingContext(ctx); err != nil {
 		return fmt.Errorf("database ping failed: %w", err)
