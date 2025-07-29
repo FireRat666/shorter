@@ -170,6 +170,21 @@ input[type="checkbox"] {
 
 .tos {
     padding: 2em;
+    margin-bottom: 3em; /* Add space below the TOS box to prevent cutoff when expanded */
+}
+
+/* Make the TOS label look like an interactive element */
+label[for="ToS"] {
+    cursor: pointer;
+    user-select: none; /* Prevents text selection when clicking */
+}
+
+/* Add an expand/collapse icon to the TOS label */
+label[for="ToS"]::before {
+    content: '▶'; /* Right-pointing triangle for collapsed state */
+    display: inline-block;
+    margin-right: 0.5em;
+    font-size: 0.8em;
 }
 
 #ToSDiv {
@@ -180,7 +195,12 @@ input[type="checkbox"] {
 }
 
 input[id="ToS"]:checked~#ToSDiv {
-    display: grid;
+    display: block;
+}
+
+/* Change the icon when the checkbox is checked (expanded state) */
+input[id="ToS"]:checked + label::before {
+    content: '▼'; /* Down-pointing triangle for expanded state */
 }
 
 .text-dump-box {
@@ -197,4 +217,20 @@ input[id="ToS"]:checked~#ToSDiv {
 .inputbox[type=number] {
     width: 10em;
     justify-self: start; /* Prevents the input from stretching to fill the grid cell */
+}
+
+.footer-link {
+    max-width: 800px; /* Match the width of the main form for alignment */
+    margin: 1em auto; /* Center the footer block itself */
+    text-align: center;
+    padding: 1em;
+}
+
+.footer-link a {
+    color: #aaa;
+    text-decoration: none;
+}
+
+.footer-link a:hover {
+    text-decoration: underline;
 }
