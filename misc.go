@@ -291,6 +291,9 @@ func logErrors(w http.ResponseWriter, r *http.Request, userMessage string, statu
 		)
 	}
 
+	// Ensure all error pages also receive security headers.
+	addHeaders(w, r)
+
 	// Attempt to render the themed error page.
 	errorTmpl, ok := templateMap["error"]
 	if !ok {

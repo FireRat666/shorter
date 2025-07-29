@@ -204,6 +204,7 @@ func basicAuth(next http.HandlerFunc) http.HandlerFunc {
 
 		// Check if credentials were provided and if they match the configured user.
 		if !ok || user != config.Admin.User {
+			addHeaders(w, r) // Add security headers to the auth error response.
 			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -213,6 +214,7 @@ func basicAuth(next http.HandlerFunc) http.HandlerFunc {
 		err := bcrypt.CompareHashAndPassword([]byte(config.Admin.PassHash), []byte(pass))
 		if err != nil {
 			// Password does not match.
+			addHeaders(w, r) // Add security headers to the auth error response.
 			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -377,6 +379,7 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin", http.StatusSeeOther)
 
 	default:
+		addHeaders(w, r)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
@@ -562,6 +565,9 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Add security headers to all successful link/text/file views.
+	addHeaders(w, r)
+
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
@@ -669,6 +675,7 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 	}
 
 	// Respond to the user with the success page.
+	addHeaders(w, r)
 	w.Header().Add("Content-Type", "text/html; charset=utf-8")
 	t, ok := templateMap["showLink"]
 	if !ok {
@@ -802,6 +809,7 @@ func handleRobots(mux *http.ServeMux) {
 			slogger.Info("Missing robots.txt in Template dir, will return 404 for /robots.txt requests")
 		}
 		handler404 := func(w http.ResponseWriter, r *http.Request) {
+			addHeaders(w, r)
 			http.Error(w, "Not Found", http.StatusNotFound)
 		}
 		mux.HandleFunc("/robots.txt", handler404)
