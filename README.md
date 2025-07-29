@@ -57,7 +57,7 @@ First, fork this repository to your own GitHub account.
 2.  Connect the GitHub repository you forked.
 3.  Render should automatically detect that this is a Go project. Use the following settings:
     *   **Build Command**: `go build .`
-    *   **Start Command**: `./shorter`
+    *   **Start Command**: `./app`
 
 ### 4. Configure Environment Variables
 In your Web Service's "Environment" tab, add the following environment variables. It's important to set these as secrets.
