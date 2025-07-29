@@ -234,3 +234,20 @@ input[id="ToS"]:checked + label::before {
 .footer-link a:hover {
     text-decoration: underline;
 }
+
+/* Admin Panel Table Styling */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1em;
+}
+
+th, td {
+    border: 1px solid #444;
+    padding: 0.8em;
+    text-align: left;
+}
+
+th {
+    background-color: #3a3a3a;
+}
