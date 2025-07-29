@@ -17,7 +17,7 @@ const (
 	errNotImplemented   = "Not Implemented"
 	errLowRAM           = "No Space available, new space will be available as old links become invalid"
 	// cssSRIHash is the Subresource Integrity hash for the default shorter.css file.
-	cssSRIHash = "sha256-/d7T78BGhSrJ8B2PXEd+cyLqv4CbwtzPqpYpi8OPXeI=" // This hash is for the default shorter.css file, update it if the file changes.
+	cssSRIHash = "sha256-qF6fDO2fGV4Q2ZCACTzG4HHEDZ1NT/yXQjY2v4ljzA8=" // This hash is for the default shorter.css file, update it if the file changes.
 )
 
 var (
