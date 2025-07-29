@@ -1,0 +1,19 @@
+# Set default behavior for all files to normalize line endings to LF.
+# This is the standard for Go and cross-platform projects.
+* text=auto eol=lf
+
+# Explicitly handle file types to ensure consistency.
+# Go files
+*.go text
+go.mod text
+go.sum text
+
+# Web and template files
+*.js text
+*.css text
+*.html text
+*.tmpl text
+
+# Config and docs
+*.yaml text
+*.md text
