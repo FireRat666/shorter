@@ -227,7 +227,19 @@ func basicAuth(next http.HandlerFunc) http.HandlerFunc {
 func handleAdmin(w http.ResponseWriter, r *http.Request) {
 	// Route request based on HTTP method.
 	if r.Method == http.MethodPost {
-		handleAdminCreateSubdomain(w, r)
+		// Further route POST requests based on the 'action' form value.
+		if err := r.ParseForm(); err != nil {
+			logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Admin form parse error: "+err.Error())
+			return
+		}
+		switch r.FormValue("action") {
+		case "create":
+			handleAdminCreateSubdomain(w, r)
+		case "delete":
+			handleAdminDeleteSubdomain(w, r)
+		default:
+			logErrors(w, r, "Invalid admin action.", http.StatusBadRequest, "Unknown admin action submitted")
+		}
 		return
 	}
 
@@ -251,11 +263,6 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAdminCreateSubdomain(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Admin form parse error: "+err.Error())
-		return
-	}
-
 	subdomainName := r.FormValue("subdomain")
 	len1Timeout := r.FormValue("link_len1_timeout")
 
@@ -284,6 +291,26 @@ func handleAdminCreateSubdomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Redirect back to the admin page to show the updated list.
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func handleAdminDeleteSubdomain(w http.ResponseWriter, r *http.Request) {
+	subdomainName := r.FormValue("subdomain")
+	if subdomainName == "" {
+		logErrors(w, r, "Subdomain name cannot be empty.", http.StatusBadRequest, "Admin delete request missing subdomain name")
+		return
+	}
+
+	// Remove the subdomain from the database.
+	if err := deleteSubdomainFromDB(r.Context(), subdomainName); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete subdomain from database: "+err.Error())
+		return
+	}
+
+	// Remove the subdomain from the in-memory config.
+	delete(config.Subdomains, subdomainName)
+
+	// Redirect back to the admin page.
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
