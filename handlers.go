@@ -264,22 +264,44 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 
 func handleAdminCreateSubdomain(w http.ResponseWriter, r *http.Request) {
 	subdomainName := r.FormValue("subdomain")
-	len1Timeout := r.FormValue("link_len1_timeout")
 
 	// Basic validation
 	if subdomainName == "" {
 		logErrors(w, r, "Subdomain name cannot be empty.", http.StatusBadRequest, "Admin submitted empty subdomain name")
 		return
 	}
-	if _, err := time.ParseDuration(len1Timeout); err != nil {
-		logErrors(w, r, "Invalid timeout duration format.", http.StatusBadRequest, "Admin submitted invalid timeout: "+len1Timeout)
-		return
+
+	// Parse all form values, falling back to defaults if empty.
+	// A more robust implementation might validate each field individually.
+	newConfig := SubdomainConfig{
+		LinkLen1Timeout: r.FormValue("link_len1_timeout"),
+		LinkLen1Display: r.FormValue("link_len1_display"),
+		LinkLen2Timeout: r.FormValue("link_len2_timeout"),
+		LinkLen2Display: r.FormValue("link_len2_display"),
+		LinkLen3Timeout: r.FormValue("link_len3_timeout"),
+		LinkLen3Display: r.FormValue("link_len3_display"),
+		CustomTimeout:   r.FormValue("custom_timeout"),
+		CustomDisplay:   r.FormValue("custom_display"),
+		StaticLinks:     make(map[string]string), // Initialize with empty static links
 	}
 
-	// Create the new subdomain configuration, inheriting from defaults.
-	newConfig := config.Defaults
-	newConfig.LinkLen1Timeout = len1Timeout
-	// For now, we only set the one field from the form.
+	maxUses, err := strconv.Atoi(r.FormValue("max_uses"))
+	if err != nil || maxUses < 0 {
+		logErrors(w, r, "Invalid value for Max Uses.", http.StatusBadRequest, "Admin submitted invalid max uses")
+		return
+	}
+	newConfig.LinkAccessMaxNr = maxUses
+
+	// Validate all timeout duration formats
+	timeouts := []string{
+		newConfig.LinkLen1Timeout, newConfig.LinkLen2Timeout, newConfig.LinkLen3Timeout, newConfig.CustomTimeout,
+	}
+	for _, t := range timeouts {
+		if _, err := time.ParseDuration(t); err != nil {
+			logErrors(w, r, "Invalid timeout duration format: "+t, http.StatusBadRequest, "Admin submitted invalid timeout")
+			return
+		}
+	}
 
 	// Add the new subdomain to the in-memory config.
 	config.Subdomains[subdomainName] = newConfig
