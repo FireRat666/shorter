@@ -72,6 +72,15 @@ func main() {
 		}
 		config.DomainNames = domains
 	}
+
+	// On Render, admin credentials should be provided as environment variables.
+	if adminUser := os.Getenv("ADMIN_USER"); adminUser != "" {
+		config.Admin.User = adminUser
+	}
+	if adminPassHash := os.Getenv("ADMIN_PASS_HASH"); adminPassHash != "" {
+		config.Admin.PassHash = adminPassHash
+	}
+
 	// --- END: Render Compatibility ---
 
 	// If BaseDir is not specified in the config, automatically find the 'shorterdata' directory.
@@ -130,8 +139,9 @@ func main() {
 	handleJS(mux)                                  // defined in handlers.go
 	handleImages(mux)                              // defined in handlers.go
 	mux.HandleFunc("/csp-report", handleCSPReport) // defined in handlers.go
-	handleRobots(mux)                              // defined in handlers.go
-	handleRoot(mux)                                // defined in handlers.go
+	mux.HandleFunc("/admin", basicAuth(handleAdmin))
+	handleRobots(mux) // defined in handlers.go
+	handleRoot(mux)   // defined in handlers.go
 
 	// Start server
 	startupMsg := fmt.Sprintf("Starting server on %s", config.AddressPort)
