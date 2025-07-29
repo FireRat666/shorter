@@ -27,6 +27,12 @@ type MalwareProtectionConfig struct {
 	CustomDNSServers []string `yaml:"CustomDNSServers"`
 }
 
+// AdminConfig holds credentials for the secure admin interface.
+type AdminConfig struct {
+	User     string `yaml:"User"`
+	PassHash string `yaml:"PassHash"` // Store bcrypt hash, not plaintext
+}
+
 // Config holds all the configuration for the application, read from the config file.
 type Config struct {
 	AddressPort       string                  `yaml:"AddressPort"`
@@ -44,6 +50,7 @@ type Config struct {
 	MinSizeToGzip     int                     `yaml:"MinSizeToGzip"`
 	LowRAM            bool                    `yaml:"LowRAM"`
 	CSP               string                  `yaml:"CSP"`
+	Admin             AdminConfig             `yaml:"Admin"`
 	MalwareProtection MalwareProtectionConfig `yaml:"MalwareProtection"`
 	// Default settings will be used if a subdomain doesn't specify its own.
 	Defaults   SubdomainConfig            `yaml:"Defaults"`
