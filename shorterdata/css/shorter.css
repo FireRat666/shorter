@@ -251,3 +251,16 @@ th, td {
 th {
     background-color: #3a3a3a;
 }
+
+/* Admin Panel Form Styling */
+.admin-form {
+    display: grid;
+    grid-template-columns: 150px 1fr;
+    gap: 1em;
+    align-items: center;
+    margin-top: 1em;
+}
+
+.admin-form input[type="submit"] {
+    grid-column: span 2;
+}
