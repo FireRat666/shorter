@@ -318,6 +318,12 @@ func handleAdminDeleteSubdomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Also delete all dynamic links associated with this subdomain.
+	if err := deleteLinksForDomain(r.Context(), subdomainName); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete associated links from database: "+err.Error())
+		return
+	}
+
 	// Remove the subdomain from the database.
 	if err := deleteSubdomainFromDB(r.Context(), subdomainName); err != nil {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete subdomain from database: "+err.Error())
