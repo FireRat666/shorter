@@ -123,6 +123,16 @@ func deleteSubdomainFromDB(ctx context.Context, domain string) error {
 	return nil
 }
 
+// deleteLinksForDomain removes all dynamic links associated with a specific domain.
+func deleteLinksForDomain(ctx context.Context, domain string) error {
+	query := `DELETE FROM links WHERE domain = $1;`
+	_, err := db.ExecContext(ctx, query, domain)
+	if err != nil {
+		return fmt.Errorf("failed to delete links for domain %s: %w", domain, err)
+	}
+	return nil
+}
+
 // getLinksForDomain retrieves all active links for a specific domain, ordered by creation date.
 func getLinksForDomain(ctx context.Context, domain string) ([]Link, error) {
 	query := `
