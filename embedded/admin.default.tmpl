@@ -29,6 +29,7 @@
                             <td>{{$config.LinkLen1Timeout}}</td>
                             <td>{{len $config.StaticLinks}}</td>
                             <td>
+                                <a href="/admin/edit?domain={{$domain}}" class="edit-button">Edit</a>
                                 <form method="POST" action="/admin" style="display: inline;">
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="subdomain" value="{{$domain}}">
