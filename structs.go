@@ -108,6 +108,12 @@ type adminPageVars struct {
 	Defaults   SubdomainConfig
 }
 
+// adminEditPageVars holds the data for the subdomain edit page.
+type adminEditPageVars struct {
+	Domain string
+	Config SubdomainConfig
+}
+
 // CSPReport represents the structure of a CSP violation report sent by the browser.
 type CSPReport struct {
 	CSPReport struct {
