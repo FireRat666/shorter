@@ -35,6 +35,20 @@
                 <p>No subdomains are currently configured.</p>
             {{end}}
         </div>
+        <div class="tos">
+            <h2>Create New Subdomain</h2>
+            <form class="admin-form" method="POST" action="/admin">
+                <label for="subdomain">Subdomain Name:</label>
+                <input type="text" id="subdomain" name="subdomain" class="inputbox" placeholder="user1.your-app.com" required>
+
+                <label for="link_len1_timeout">Timeout (Length 1):</label>
+                <input type="text" id="link_len1_timeout" name="link_len1_timeout" class="inputbox" value="{{.Defaults.LinkLen1Timeout}}">
+
+                <!-- More fields for other settings can be added here -->
+
+                <input type="submit" value="Create Subdomain">
+            </form>
+        </div>
     </div>
 </body>
 </html>
