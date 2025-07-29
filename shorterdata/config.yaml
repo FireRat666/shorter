@@ -78,3 +78,16 @@ Subdomains:
   #   LinkLen1Display: "5m"
   #   StaticLinks:
   #     "home": "https://example.com"
+  # Example subdomain configurations for local development.
+  # Uncomment and modify these to test different subdomain settings.
+  # Subdomains:
+  #   alice.localhost:8080:
+  #     LinkLen1Timeout: "5m"
+  #     LinkLen1Display: "5m"
+  #     StaticLinks:
+  #       "home": "https://alice.dev"
+  #   bob.localhost:8080:
+  #     LinkLen1Timeout: "1h"
+  #     LinkLen1Display: "1h"
+  #     StaticLinks:
+  #       "portfolio": "https://bob.com"
