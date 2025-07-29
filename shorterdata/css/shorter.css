@@ -264,3 +264,18 @@ th {
 .admin-form input[type="submit"] {
     grid-column: span 2;
 }
+
+/* Make the delete button rule more specific to override the default submit style */
+input[type=submit].delete-button {
+    background-color: #c00000; /* Red color for destructive action */
+    color: white;
+    padding: 0.5em 1em;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+/* Make the admin submit button rule more specific to ensure it's green */
+input[type=submit].admin-submit-button {
+    background-color: #097100;
+}
