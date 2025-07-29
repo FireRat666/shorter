@@ -58,11 +58,54 @@ func addHeaders(w http.ResponseWriter, r *http.Request) {
 
 // getSubdomainConfig returns the specific configuration for a given host,
 // falling back to the default configuration if no specific one is found.
+// It starts with the default configuration and then overrides it with any
+// settings specified for the particular host.
 func getSubdomainConfig(host string) SubdomainConfig {
+	// Start with a copy of the default configuration.
+	mergedConfig := config.Defaults
+
+	// Check if a specific configuration exists for this host.
 	if subConfig, ok := config.Subdomains[host]; ok {
-		return subConfig
+		// Override defaults with specific settings if they are not zero-valued.
+		if subConfig.LinkLen1Timeout != "" {
+			mergedConfig.LinkLen1Timeout = subConfig.LinkLen1Timeout
+		}
+		if subConfig.LinkLen2Timeout != "" {
+			mergedConfig.LinkLen2Timeout = subConfig.LinkLen2Timeout
+		}
+		if subConfig.LinkLen3Timeout != "" {
+			mergedConfig.LinkLen3Timeout = subConfig.LinkLen3Timeout
+		}
+		if subConfig.CustomTimeout != "" {
+			mergedConfig.CustomTimeout = subConfig.CustomTimeout
+		}
+		if subConfig.LinkLen1Display != "" {
+			mergedConfig.LinkLen1Display = subConfig.LinkLen1Display
+		}
+		if subConfig.LinkLen2Display != "" {
+			mergedConfig.LinkLen2Display = subConfig.LinkLen2Display
+		}
+		if subConfig.LinkLen3Display != "" {
+			mergedConfig.LinkLen3Display = subConfig.LinkLen3Display
+		}
+		if subConfig.CustomDisplay != "" {
+			mergedConfig.CustomDisplay = subConfig.CustomDisplay
+		}
+		if subConfig.LinkAccessMaxNr != 0 {
+			mergedConfig.LinkAccessMaxNr = subConfig.LinkAccessMaxNr
+		}
+		// If a subdomain defines its own static links, they completely override the defaults.
+		if subConfig.StaticLinks != nil {
+			mergedConfig.StaticLinks = subConfig.StaticLinks
+		}
 	}
-	return config.Defaults
+
+	// Ensure the StaticLinks map is never nil to prevent panics.
+	if mergedConfig.StaticLinks == nil {
+		mergedConfig.StaticLinks = make(map[string]string)
+	}
+
+	return mergedConfig
 }
 
 // validRequest returns true if the host string matches any of the valid hosts specified in the config and if the request is of a valid method (GET, POST)
@@ -71,7 +114,14 @@ func validRequest(r *http.Request) bool {
 	for _, d := range config.DomainNames {
 		if r.Host == d {
 			validHost = true
+			break
 		}
+	}
+
+	// If the host was not in the main DomainNames list, check if it's defined
+	// as a key in the Subdomains map. This avoids redundant configuration.
+	if !validHost {
+		_, validHost = config.Subdomains[r.Host]
 	}
 
 	if r.Method == "GET" || r.Method == "POST" {
