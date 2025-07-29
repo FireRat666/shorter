@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="color-scheme" content="dark">
+    <link rel="stylesheet" type="text/css" href="/shorter.css">
+    <title>Edit Subdomain - {{.Domain}}</title>
+</head>
+<body>
+    <div class="content">
+        <div class="header">
+            <h1>Edit Subdomain: {{.Domain}}</h1>
+        </div>
+        <div class="tos">
+            <form class="admin-form" method="POST" action="/admin/edit?domain={{.Domain}}">
+                <input type="hidden" name="subdomain" value="{{.Domain}}">
+
+                <label for="link_len1_timeout">Timeout (Len 1):</label>
+                <input type="text" id="link_len1_timeout" name="link_len1_timeout" class="inputbox" value="{{.Config.LinkLen1Timeout}}">
+                <label for="link_len1_display">Display (Len 1):</label>
+                <input type="text" id="link_len1_display" name="link_len1_display" class="inputbox" value="{{.Config.LinkLen1Display}}">
+
+                <label for="link_len2_timeout">Timeout (Len 2):</label>
+                <input type="text" id="link_len2_timeout" name="link_len2_timeout" class="inputbox" value="{{.Config.LinkLen2Timeout}}">
+                <label for="link_len2_display">Display (Len 2):</label>
+                <input type="text" id="link_len2_display" name="link_len2_display" class="inputbox" value="{{.Config.LinkLen2Display}}">
+
+                <label for="link_len3_timeout">Timeout (Len 3):</label>
+                <input type="text" id="link_len3_timeout" name="link_len3_timeout" class="inputbox" value="{{.Config.LinkLen3Timeout}}">
+                <label for="link_len3_display">Display (Len 3):</label>
+                <input type="text" id="link_len3_display" name="link_len3_display" class="inputbox" value="{{.Config.LinkLen3Display}}">
+
+                <label for="custom_timeout">Timeout (Custom):</label>
+                <input type="text" id="custom_timeout" name="custom_timeout" class="inputbox" value="{{.Config.CustomTimeout}}">
+                <label for="custom_display">Display (Custom):</label>
+                <input type="text" id="custom_display" name="custom_display" class="inputbox" value="{{.Config.CustomDisplay}}">
+
+                <label for="max_uses">Max Uses:</label>
+                <input type="number" id="max_uses" name="max_uses" class="inputbox" value="{{.Config.LinkAccessMaxNr}}" min="0">
+
+                <input type="submit" value="Update Subdomain" class="admin-submit-button">
+            </form>
+            <a href="/admin" style="display: block; margin-top: 1em;">Back to Admin Panel</a>
+        </div>
+    </div>
+</body>
+</html>
