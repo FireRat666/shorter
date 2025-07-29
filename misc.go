@@ -282,6 +282,9 @@ var defaultShowTextHTML string
 //go:embed embedded/error.default.tmpl
 var defaultErrorHTML string
 
+//go:embed embedded/admin.default.tmpl
+var defaultAdminHTML string
+
 func initTemplates() {
 	// templateMap should be used as read only after initTemplates() has returned
 	templateMap = make(map[string]*template.Template)
@@ -292,6 +295,8 @@ func initTemplates() {
 	loadTemplate("showLink", defaultShowLinkHTML)
 	// Create page for showing text dumps from embedded default, or custom file if it exists.
 	loadTemplate("showText", defaultShowTextHTML)
+	// Create an admin page.
+	loadTemplate("admin", defaultAdminHTML)
 	// Create a generic error page.
 	loadTemplate("error", defaultErrorHTML)
 }
