@@ -235,6 +235,7 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 	// Prepare the data for the admin page template.
 	pageVars := adminPageVars{
 		Subdomains: config.Subdomains,
+		Defaults:   config.Defaults,
 	}
 
 	if err := adminTmpl.Execute(w, pageVars); err != nil {
@@ -426,6 +427,7 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		logOK(r, http.StatusOK)
+		return
 	case "text":
 		if showLink {
 			w.Header().Add("Content-Type", "text/plain; charset=utf-8")
@@ -467,6 +469,7 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 		return
 	default:
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "invalid LinkType "+url.QueryEscape(lnk.LinkType))
+		return
 	}
 }
 
