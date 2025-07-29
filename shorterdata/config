@@ -10,7 +10,7 @@ AddressPort: "127.0.0.1:8081"
 # DatabaseURL is overridden by the DATABASE_URL environment variable on Render for security.
 # This value can be used for local development.
 # Example: "postgres://user:password@localhost:5432/shorter_db"
-DatabaseURL: "postgres://e16ecdd05807e8ff66a838d8d57f45d2c685047ac6710f630722d7da2bc16d69:sk_TghTuXhWhDK3vyaWOl9gV@db.prisma.io:5432/?sslmode=require"
+DatabaseURL: ""
 
 # BaseDir should be a relative path to your data directory.
 BaseDir: "shorterdata"
@@ -53,7 +53,7 @@ MalwareProtection:
 # These should be overridden by environment variables for production.
 Admin:
   User: "admin"
-  PassHash: "$2a$10$nlr01fB0IYTVhVvUTYLnsO93MsJt2HkCkL0/74SsvFgpXXl/bggWe" # Generate a bcrypt hash for your password and place it here or in an env var.
+  PassHash: "" # Generate a bcrypt hash for your password and place it here or in an env var.
 
 # Default settings are used for all domains unless overridden by a specific subdomain configuration.
 Defaults:
