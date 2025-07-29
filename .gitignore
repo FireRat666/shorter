@@ -12,6 +12,7 @@ shorter
 # Local config file with secrets.
 # This file should be created locally for development but never checked into Git.
 shorterdata/Config
+shorterdata/config
 shorterdata/shorter.log
 
 # OS-generated files
