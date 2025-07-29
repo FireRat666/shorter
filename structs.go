@@ -102,6 +102,11 @@ type errorPageVars struct {
 	Message    string
 }
 
+// adminPageVars holds the data needed to render the admin page.
+type adminPageVars struct {
+	Subdomains map[string]SubdomainConfig
+}
+
 // CSPReport represents the structure of a CSP violation report sent by the browser.
 type CSPReport struct {
 	CSPReport struct {
