@@ -9,7 +9,7 @@
 <body>
    <div class="content">
       <div class="tos">Temporary link:<br>
-         <H1><a href="{{.Data}}">{{.Data}}</a></H1><br>
+         <H1><a href="{{.Data}}" target="_blank" rel="noopener noreferrer">{{.Data}}</a></H1><br>
          This link will be removed on {{.Timeout}}.
          {{if gt .TimesAllowed 0}}<br>It can be viewed {{.RemainingUses}} more time(s).{{end}}
       </div>
