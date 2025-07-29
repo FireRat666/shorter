@@ -70,6 +70,38 @@ In your Web Service's "Environment" tab, add the following environment variables
 *   `SHORTER_DOMAINS`:
     *   **Value**: A comma-separated list of the domains your service will run on. For a new Render service, this would be your `onrender.com` URL (e.g., `shorter-app.onrender.com`). If you add a custom domain later, you can add it here (e.g., `shorter-app.onrender.com,s.example.com`).
 
+*   `ADMIN_USER`:
+    *   **Value**: The username for the admin panel (e.g., `admin`).
+*   `ADMIN_PASS_HASH`:
+    *   **Value**: A **bcrypt hash** of your desired password. For security, you should never use a plaintext password.
+    *   **How to Generate a Hash**:
+        1.  Create a temporary file named `hash.go`.
+        2.  Paste the following Go code into it:
+            ```go
+            package main
+
+            import (
+                "fmt"
+                "log"
+                "os"
+                "golang.org/x/crypto/bcrypt"
+            )
+
+            func main() {
+                if len(os.Args) < 2 {
+                    log.Fatalln("Usage: go run hash.go <your-secret-password>")
+                }
+                password := os.Args[1]
+                hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+                if err != nil {
+                    log.Fatalln("Error generating hash:", err)
+                }
+                fmt.Println(string(hash))
+            }
+            ```
+        3.  Run the script from your terminal: `go run hash.go "my-super-secret-password"`
+        4.  Copy the output hash and use it as the value for this environment variable.
+
 Render will automatically set the `PORT` environment variable, which the application is configured to use.
 
 ### 5. Deploy
