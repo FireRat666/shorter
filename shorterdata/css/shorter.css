@@ -164,7 +164,8 @@ input[id="showCustomKey"]:checked ~ #customDiv {
 
 
 
-input[type="checkbox"] {
+/* Hide the checkbox used for the CSS-only TOS toggle */
+input[id="ToS"] {
     display: none;
 }
 

@@ -87,36 +87,35 @@
 
         <div class="tos">
             <h2>Active Links &amp; Text Dumps</h2>
-            {{if .Links}}
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Key</th>
-                            <th>Type</th>
-                            <th>Expires At</th>
-                            <th>Delete</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {{range .Links}}
-                        <tr>
-                            <td><a href="/{{.Key}}" target="_blank">{{.Key}}</a></td>
-                            <td>{{.LinkType}}</td>
-                            <td>{{.ExpiresAt.Format "2006-01-02 15:04 MST"}}</td>
-                            <td>
-                                <form method="POST" action="/admin/edit?domain={{$.Domain}}">
-                                    <input type="hidden" name="action" value="delete_dynamic_link">
-                                    <input type="hidden" name="link_key" value="{{.Key}}">
-                                    <input type="submit" value="Delete" class="delete-button" data-confirm="Are you sure you want to delete this link?">
-                                </form>
-                            </td>
-                        </tr>
-                        {{end}}
-                    </tbody>
-                </table>
-            {{else}}
+            <form method="POST" action="/admin/edit?domain={{.Domain}}">
+                <input type="hidden" name="action" value="delete_multiple_dynamic_links">
+                {{if .Links}}
+                    <table>
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox" id="select-all-links" title="Select All"></th>
+                                <th>Key</th>
+                                <th>Type</th>
+                                <th>Expires At</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range .Links}}
+                            <tr>
+                                <td><input type="checkbox" name="link_keys" value="{{.Key}}" class="link-checkbox"></td>
+                                <td><a href="/{{.Key}}" target="_blank">{{.Key}}</a></td>
+                                <td>{{.LinkType}}</td>
+                                <td>{{.ExpiresAt.Format "2006-01-02 15:04 MST"}}</td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                    <br>
+                    <input type="submit" value="Delete Selected Links" class="delete-button" data-confirm="Are you sure you want to delete the selected links? This action cannot be undone.">
+                {{else}}
                 <p>No active links or text dumps found for this domain.</p>
-            {{end}}
+                {{end}}
+            </form>
         </div>
     </div>
 </body>

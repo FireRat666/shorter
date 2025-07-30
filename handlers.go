@@ -472,8 +472,8 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 			handleAdminAddStaticLink(w, r, domain)
 		case "delete_static_link":
 			handleAdminDeleteStaticLink(w, r, domain)
-		case "delete_dynamic_link":
-			handleAdminDeleteDynamicLink(w, r, domain)
+		case "delete_multiple_dynamic_links":
+			handleAdminDeleteMultipleDynamicLinks(w, r, domain)
 		default:
 			logErrors(w, r, "Invalid admin action.", http.StatusBadRequest, "Unknown admin edit action submitted")
 		}
@@ -564,17 +564,26 @@ func handleAdminDeleteStaticLink(w http.ResponseWriter, r *http.Request, domain 
 	http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
 }
 
-func handleAdminDeleteDynamicLink(w http.ResponseWriter, r *http.Request, domain string) {
-	key := r.FormValue("link_key")
-	if key == "" {
-		logErrors(w, r, "Link key cannot be empty.", http.StatusBadRequest, "Admin delete dynamic link request missing key")
+func handleAdminDeleteMultipleDynamicLinks(w http.ResponseWriter, r *http.Request, domain string) {
+	// r.Form is already parsed by the calling function.
+	linkKeys := r.Form["link_keys"]
+	if len(linkKeys) == 0 {
+		// If no checkboxes were selected, just redirect back.
+		http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
 		return
 	}
 
-	// Remove the link from the database.
-	if err := deleteLink(r.Context(), key, domain); err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete link from database: "+err.Error())
-		return
+	var errorOccurred bool
+	for _, key := range linkKeys {
+		if err := deleteLink(r.Context(), key, domain); err != nil {
+			// Log the error but continue trying to delete the others.
+			slogger.Error("Failed to delete dynamic link during bulk operation", "key", key, "domain", domain, "error", err)
+			errorOccurred = true
+		}
+	}
+
+	if errorOccurred {
+		slogger.Warn("One or more links could not be deleted during bulk operation", "domain", domain)
 	}
 
 	// Redirect back to the edit page.

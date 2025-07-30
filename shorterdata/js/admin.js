@@ -23,4 +23,16 @@ document.addEventListener('DOMContentLoaded', function () {
             // and the form will submit as normal.
         });
     });
+
+    // Handle the "select all" checkbox for bulk link deletion.
+    const selectAllCheckbox = document.getElementById('select-all-links');
+    const linkCheckboxes = document.querySelectorAll('.link-checkbox');
+
+    if (selectAllCheckbox && linkCheckboxes.length > 0) {
+        selectAllCheckbox.addEventListener('change', function() {
+            linkCheckboxes.forEach(checkbox => {
+                checkbox.checked = selectAllCheckbox.checked;
+            });
+        });
+    }
 });
