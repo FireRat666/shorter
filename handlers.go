@@ -745,11 +745,29 @@ func handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Authentication successful.
-		// In the next step, we will create a session here.
 		slogger.Info("Admin user successfully authenticated", "user", username)
 
+		// Determine session duration based on "Remember Me" checkbox.
+		rememberMe := r.FormValue("remember_me") == "true"
+		var sessionDuration time.Duration
+		var err error
+
+		if rememberMe {
+			sessionDuration, err = time.ParseDuration(config.SessionTimeoutRememberMe)
+			if err != nil {
+				slogger.Error("Invalid SessionTimeoutRememberMe format, using default 24h", "duration", config.SessionTimeoutRememberMe, "error", err)
+				sessionDuration = 24 * time.Hour
+			}
+		} else {
+			sessionDuration, err = time.ParseDuration(config.SessionTimeout)
+			if err != nil {
+				slogger.Error("Invalid SessionTimeout format, using default 24h", "duration", config.SessionTimeout, "error", err)
+				sessionDuration = 24 * time.Hour
+			}
+		}
+
 		// Create a new session for the user.
-		session, err := createSession(r.Context(), username)
+		session, err := createSession(r.Context(), username, sessionDuration)
 		if err != nil {
 			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to create session: "+err.Error())
 			return

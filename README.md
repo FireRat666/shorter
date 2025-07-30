@@ -16,6 +16,7 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
 *   **Secure Admin Panel**: A modern, session-based admin interface for managing the service.
     *   **Subdomain Management**: Create, delete, and configure settings for multiple domains from a single interface.
     *   **Per-Domain Configuration**: Override default settings for link timeouts, display values, and usage limits on a per-subdomain basis.
+    *   **"Remember Me"**: Stay logged into the admin panel for an extended period.
     *   **Link Management**: View and delete active dynamic links and manage permanent static links for each domain.
 *   **Persistent Storage**: Uses a PostgreSQL backend to store all links, sessions, and configurations.
 *   **Automatic Database Maintenance**: A background job periodically cleans up expired links and sessions, and an intelligent "just-in-time" cleanup mechanism reclaims keys from expired links during normal use.
@@ -129,7 +130,6 @@ With the configuration and environment variables set, you can trigger your first
 *   **Link Analytics**: Track the number of clicks for each link to provide basic usage statistics.
 *   **Password-Protected Links**: Add an option to require a password before a user can be redirected to the destination URL.
 *   **QR Code Generation**: Automatically generate a downloadable QR code for each created short link.
-*   **"Remember Me"**: Add a "Remember Me" option to the login page to allow for longer-lived sessions.
 *   **Public API**: Create a RESTful API for programmatic link creation and management, protected by API keys.
 *   **Abuse Reporting**: Add a form, protected by a captcha, for users to report links that violate the Terms of Service.
 

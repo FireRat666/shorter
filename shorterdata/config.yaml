@@ -35,6 +35,10 @@ LinkLen3: 3
 MaxKeyLen: 64
 MaxFileSize: 10000000 # 10MB
 MinSizeToGzip: 128
+# Default session duration for admin login.
+SessionTimeout: "24h"
+# Extended session duration when "Remember Me" is checked.
+SessionTimeoutRememberMe: "720h" # 30 days
 # How often to run the automatic cleanup of expired links and sessions.
 # Use Go duration format (e.g., "24h", "1h30m"). Defaults to 24h if not set.
 CleanupInterval: "24h"

@@ -361,14 +361,13 @@ func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 // --- Session Management ---
 
 // createSession generates a new session token, stores it in the database, and returns the session.
-func createSession(ctx context.Context, userID string) (*Session, error) {
+func createSession(ctx context.Context, userID string, duration time.Duration) (*Session, error) {
 	token, err := generateSessionToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate session token: %w", err)
 	}
 
-	// Sessions are valid for 24 hours.
-	expiresAt := time.Now().Add(24 * time.Hour)
+	expiresAt := time.Now().Add(duration)
 
 	session := &Session{
 		Token:     token,

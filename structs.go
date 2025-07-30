@@ -7,28 +7,30 @@ import (
 
 // Config holds all the configuration for the application, read from the config file.
 type Config struct {
-	DomainNames       []string                   `yaml:"DomainNames"`
-	PrimaryDomain     string                     // Set programmatically
-	AddressPort       string                     `yaml:"AddressPort"`
-	BaseDir           string                     `yaml:"BaseDir"`
-	DatabaseURL       string                     `yaml:"DatabaseURL"`
-	Logging           bool                       `yaml:"Logging"`
-	LogLevel          string                     `yaml:"LogLevel"`
-	Logfile           string                     `yaml:"Logfile"`
-	LogSep            string                     `yaml:"LogSep"`
-	MaxKeyLen         int                        `yaml:"MaxKeyLen"`
-	LinkLen1          int                        `yaml:"LinkLen1"`
-	LinkLen2          int                        `yaml:"LinkLen2"`
-	LinkLen3          int                        `yaml:"LinkLen3"`
-	MaxFileSize       int64                      `yaml:"MaxFileSize"`
-	MinSizeToGzip     int                        `yaml:"MinSizeToGzip"`
-	LowRAM            bool                       `yaml:"LowRAM"`
-	CleanupInterval   string                     `yaml:"CleanupInterval"`
-	CSP               string                     `yaml:"CSP"`
-	Admin             AdminConfig                `yaml:"Admin"`
-	MalwareProtection MalwareProtectionConfig    `yaml:"MalwareProtection"`
-	Defaults          SubdomainConfig            `yaml:"Defaults"`
-	Subdomains        map[string]SubdomainConfig `yaml:"Subdomains"`
+	DomainNames              []string                   `yaml:"DomainNames"`
+	PrimaryDomain            string                     // Set programmatically
+	AddressPort              string                     `yaml:"AddressPort"`
+	BaseDir                  string                     `yaml:"BaseDir"`
+	DatabaseURL              string                     `yaml:"DatabaseURL"`
+	Logging                  bool                       `yaml:"Logging"`
+	LogLevel                 string                     `yaml:"LogLevel"`
+	Logfile                  string                     `yaml:"Logfile"`
+	LogSep                   string                     `yaml:"LogSep"`
+	MaxKeyLen                int                        `yaml:"MaxKeyLen"`
+	LinkLen1                 int                        `yaml:"LinkLen1"`
+	LinkLen2                 int                        `yaml:"LinkLen2"`
+	LinkLen3                 int                        `yaml:"LinkLen3"`
+	MaxFileSize              int64                      `yaml:"MaxFileSize"`
+	MinSizeToGzip            int                        `yaml:"MinSizeToGzip"`
+	LowRAM                   bool                       `yaml:"LowRAM"`
+	SessionTimeout           string                     `yaml:"SessionTimeout"`
+	SessionTimeoutRememberMe string                     `yaml:"SessionTimeoutRememberMe"`
+	CleanupInterval          string                     `yaml:"CleanupInterval"`
+	CSP                      string                     `yaml:"CSP"`
+	Admin                    AdminConfig                `yaml:"Admin"`
+	MalwareProtection        MalwareProtectionConfig    `yaml:"MalwareProtection"`
+	Defaults                 SubdomainConfig            `yaml:"Defaults"`
+	Subdomains               map[string]SubdomainConfig `yaml:"Subdomains"`
 }
 
 // AdminConfig holds the admin user credentials.
