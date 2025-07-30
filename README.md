@@ -17,8 +17,9 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
     *   **Subdomain Management**: Create, delete, and configure settings for multiple domains from a single interface.
     *   **Per-Domain Configuration**: Override default settings for link timeouts, display values, and usage limits on a per-subdomain basis.
     *   **"Remember Me"**: Stay logged into the admin panel for an extended period.
-    *   **Link Management**: View and delete active dynamic links and manage permanent static links for each domain.
+    *   **Link Management**: View click counts, and delete active dynamic links and manage permanent static links for each domain.
 *   **Persistent Storage**: Uses a PostgreSQL backend to store all links, sessions, and configurations.
+*   **Link Analytics**: A dedicated statistics page provides an overview of site-wide activity, including total links, total clicks, and recent activity over various timeframes.
 *   **Automatic Database Maintenance**: A background job periodically cleans up expired links and sessions, and an intelligent "just-in-time" cleanup mechanism reclaims keys from expired links during normal use.
 *   **Malware Protection**: Integrated with DNS-based blocklists (DNSBL) to prevent shortening of malicious URLs, using the service from [blocklist.de](https://www.blocklist.de/en/rbldns.html).
 *   **Customizable Theming**: Override the default HTML templates with your own to match your brand.
@@ -127,7 +128,6 @@ Render will automatically set the `PORT` environment variable, which the applica
 With the configuration and environment variables set, you can trigger your first deployment. The application will start, connect to the database, and be available at your Render URL.
 
 ## Future Ideas
-*   **Link Analytics**: Track the number of clicks for each link to provide basic usage statistics.
 *   **Password-Protected Links**: Add an option to require a password before a user can be redirected to the destination URL.
 *   **QR Code Generation**: Automatically generate a downloadable QR code for each created short link.
 *   **Public API**: Create a RESTful API for programmatic link creation and management, protected by API keys.
