@@ -28,6 +28,9 @@ var defaultAdminEditHTML string
 //go:embed embedded/admin_edit_static_link.default.tmpl
 var defaultAdminEditStaticLinkHTML string
 
+//go:embed embedded/admin_stats.default.tmpl
+var defaultAdminStatsHTML string
+
 //go:embed embedded/login.default.tmpl
 var defaultLoginHTML string
 
@@ -44,6 +47,7 @@ func initTemplates() error {
 	loadTemplate("admin_edit_static_link", defaultAdminEditStaticLinkHTML)
 	loadTemplate("error", defaultErrorHTML)
 	loadTemplate("login", defaultLoginHTML)
+	loadTemplate("admin_stats", defaultAdminStatsHTML)
 
 	slogger.Info("Successfully loaded HTML templates", "count", len(templateMap))
 	return nil

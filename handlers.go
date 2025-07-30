@@ -222,6 +222,7 @@ func handleAdminRoutes(mux *http.ServeMux) {
 	adminRouter.HandleFunc("/", sessionAuth(handleAdmin)) // Matches /admin
 	adminRouter.HandleFunc("/edit", sessionAuth(handleAdminEditPage))
 	adminRouter.HandleFunc("/edit_static_link", sessionAuth(handleAdminEditStaticLinkPage))
+	adminRouter.HandleFunc("/stats", sessionAuth(handleAdminStatsPage))
 	adminRouter.HandleFunc("/logout", sessionAuth(handleAdminLogout)) // Logout must be protected
 
 	// Create a handler that first strips the "/admin" prefix, then passes to the adminRouter.
@@ -334,6 +335,32 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 
 	if err := adminTmpl.Execute(w, pageVars); err != nil {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin template: "+err.Error())
+	}
+	logOK(r, http.StatusOK)
+}
+
+// handleAdminStatsPage serves the detailed statistics page.
+func handleAdminStatsPage(w http.ResponseWriter, r *http.Request) {
+	stats, err := getLinkStats(r.Context())
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve link statistics: "+err.Error())
+		return
+	}
+
+	statsTmpl, ok := templateMap["admin_stats"]
+	if !ok {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_stats template")
+		return
+	}
+
+	pageVars := statsPageVars{
+		Stats:      stats,
+		CssSRIHash: cssSRIHash,
+	}
+
+	addHeaders(w, r)
+	if err := statsTmpl.Execute(w, pageVars); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_stats template: "+err.Error())
 	}
 	logOK(r, http.StatusOK)
 }

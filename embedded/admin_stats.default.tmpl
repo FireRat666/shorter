@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="color-scheme" content="dark">
+    <link rel="stylesheet" type="text/css" href="/shorter.css" integrity="{{.CssSRIHash}}">
+    <title>Site Statistics</title>
+</head>
+<body>
+    <div class="content">
+        <div class="header">
+            <h1>Site Statistics</h1>
+            <a href="/admin" class="admin-back-link">Back to Admin Panel</a>
+        </div>
+
+        <div class="tos">
+            <h2>Overall</h2>
+            <div class="stats-container">
+                <div class="stat-box">
+                    <span class="stat-value">{{.Stats.TotalActiveLinks}}</span>
+                    <span class="stat-label">Total Active Links</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-value">{{.Stats.TotalClicks}}</span>
+                    <span class="stat-label">All-Time Clicks</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="tos">
+            <h2>Recent Activity</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Timeframe</th>
+                        <th>Links Created</th>
+                        <th>Links Clicked</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Last Hour</td>
+                        <td>{{.Stats.LinksCreatedLastHour}}</td>
+                        <td>{{.Stats.ClicksLastHour}}</td>
+                    </tr>
+                    <tr>
+                        <td>Last 24 Hours</td>
+                        <td>{{.Stats.LinksCreatedLast24Hours}}</td>
+                        <td>{{.Stats.ClicksLast24Hours}}</td>
+                    </tr>
+                    <tr>
+                        <td>Last 7 Days</td>
+                        <td>{{.Stats.LinksCreatedLast7Days}}</td>
+                        <td>{{.Stats.ClicksLast7Days}}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

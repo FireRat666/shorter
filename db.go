@@ -74,6 +74,19 @@ func setupDB(databaseURL string) error {
 		return fmt.Errorf("failed to create sessions schema: %w", err)
 	}
 
+	// Create the clicks table for link analytics.
+	schemaClicks := `
+	CREATE TABLE IF NOT EXISTS clicks (
+		id BIGSERIAL PRIMARY KEY,
+		link_key TEXT NOT NULL,
+		link_domain TEXT NOT NULL,
+		clicked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+	CREATE INDEX IF NOT EXISTS idx_clicks_clicked_at ON clicks (clicked_at);`
+	if _, err = db.ExecContext(ctx, schemaClicks); err != nil {
+		return fmt.Errorf("failed to create clicks schema: %w", err)
+	}
+
 	return nil
 }
 
@@ -280,6 +293,70 @@ func deleteLink(ctx context.Context, key, domain string) error {
 	return nil
 }
 
+// getLinkStats retrieves a comprehensive set of statistics about link creation and usage.
+func getLinkStats(ctx context.Context) (*LinkStats, error) {
+	stats := &LinkStats{}
+	var err error
+
+	// Helper function to run a single COUNT query.
+	countQuery := func(query string, args ...interface{}) (int, error) {
+		var count int
+		err := db.QueryRowContext(ctx, query, args...).Scan(&count)
+		if err != nil && err != sql.ErrNoRows {
+			return 0, err
+		}
+		return count, nil
+	}
+
+	// Total Active Links
+	stats.TotalActiveLinks, err = countQuery(`SELECT COUNT(*) FROM links WHERE expires_at > NOW()`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count total active links: %w", err)
+	}
+
+	// Total Clicks (from the times_used column for an overall count)
+	err = db.QueryRowContext(ctx, `SELECT COALESCE(SUM(times_used), 0) FROM links`).Scan(&stats.TotalClicks)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sum total clicks: %w", err)
+	}
+
+	// Time-based stats
+	now := time.Now()
+	oneHourAgo := now.Add(-1 * time.Hour)
+	twentyFourHoursAgo := now.Add(-24 * time.Hour)
+	sevenDaysAgo := now.Add(-7 * 24 * time.Hour)
+
+	// Links Created
+	stats.LinksCreatedLastHour, err = countQuery(`SELECT COUNT(*) FROM links WHERE created_at >= $1`, oneHourAgo)
+	if err != nil {
+		return nil, err
+	}
+	stats.LinksCreatedLast24Hours, err = countQuery(`SELECT COUNT(*) FROM links WHERE created_at >= $1`, twentyFourHoursAgo)
+	if err != nil {
+		return nil, err
+	}
+	stats.LinksCreatedLast7Days, err = countQuery(`SELECT COUNT(*) FROM links WHERE created_at >= $1`, sevenDaysAgo)
+	if err != nil {
+		return nil, err
+	}
+
+	// Clicks Recorded
+	stats.ClicksLastHour, err = countQuery(`SELECT COUNT(*) FROM clicks WHERE clicked_at >= $1`, oneHourAgo)
+	if err != nil {
+		return nil, err
+	}
+	stats.ClicksLast24Hours, err = countQuery(`SELECT COUNT(*) FROM clicks WHERE clicked_at >= $1`, twentyFourHoursAgo)
+	if err != nil {
+		return nil, err
+	}
+	stats.ClicksLast7Days, err = countQuery(`SELECT COUNT(*) FROM clicks WHERE clicked_at >= $1`, sevenDaysAgo)
+	if err != nil {
+		return nil, err
+	}
+
+	return stats, nil
+}
+
 // errKeyCollision is a sentinel error used to indicate a key collision with an *active* link.
 var errKeyCollision = errors.New("active key collision")
 
@@ -387,6 +464,13 @@ func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 	queryUpdate := `UPDATE links SET times_used = times_used + 1 WHERE key = $1 AND domain = $2;`
 	if _, err = tx.ExecContext(ctx, queryUpdate, key, domain); err != nil {
 		return nil, fmt.Errorf("failed to update link usage: %w", err)
+	}
+
+	// Record the click event for analytics.
+	queryInsertClick := `INSERT INTO clicks (link_key, link_domain) VALUES ($1, $2);`
+	if _, err = tx.ExecContext(ctx, queryInsertClick, key, domain); err != nil {
+		// This is not a fatal error for the user's redirect, so we just log it.
+		slogger.Error("Failed to record click for analytics", "key", key, "domain", domain, "error", err)
 	}
 
 	// Commit the transaction to save the changes.

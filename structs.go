@@ -134,6 +134,24 @@ type adminPageVars struct {
 	TotalClicks         int
 }
 
+// LinkStats holds a comprehensive set of statistics for the analytics page.
+type LinkStats struct {
+	TotalActiveLinks        int
+	TotalClicks             int
+	LinksCreatedLastHour    int
+	LinksCreatedLast24Hours int
+	LinksCreatedLast7Days   int
+	ClicksLastHour          int
+	ClicksLast24Hours       int
+	ClicksLast7Days         int
+}
+
+// statsPageVars holds the data for the statistics page template.
+type statsPageVars struct {
+	Stats      *LinkStats
+	CssSRIHash string
+}
+
 // adminEditPageVars holds the data for the subdomain edit page.
 type adminEditPageVars struct {
 	Domain         string

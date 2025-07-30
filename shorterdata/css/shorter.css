@@ -344,3 +344,16 @@ select.is-overridden {
     color: #aaa;
     margin-top: 0.5em;
 }
+
+.stats-link {
+    font-size: 0.6em;
+    font-weight: normal;
+    vertical-align: middle;
+    margin-left: 1em;
+    color: #aaa;
+    text-decoration: none;
+}
+
+.stats-link:hover {
+    text-decoration: underline;
+}
