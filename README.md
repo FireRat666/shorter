@@ -4,26 +4,41 @@
 [![License](https://img.shields.io/badge/License-UNLICENSE-blue.svg)](https://raw.githubusercontent.com/FireRat666/shorter/master/UNLICENSE)
 [![License](https://img.shields.io/badge/License-0BSD-blue.svg)](https://raw.githubusercontent.com/FireRat666/shorter/master/LICENSE)
 # shorter
-URL shortener with pastebin and file upload functions
+A powerful, self-hostable link shortener and text sharing service with multi-domain support.
 
-
-## WIP
-
-This project is a *work in progress*. The implementation is *incomplete* and subject to change.
-
-If you want to try to run shorter, please set your correct values in the config before starting the server.
-
-Shortened links on the pre alpha version test site s.firer.at will be cleared from time to time during testing without notice.
+## Features
+*   **URL Shortening**: Create short links with configurable timeouts and key lengths.
+*   **Text Sharing**: Share snippets of text with the same expiration and usage controls as links.
+*   **Custom Keys**: Define your own memorable keys for important links.
+*   **Usage Limits**: Set a maximum number of times a link can be accessed before it becomes invalid.
+*   **Link Inspection**: Safely inspect the destination of a short link by appending a `~` to the key.
+*   **Quick Add**: Create short links on the fly with a simple GET request.
+*   **Secure Admin Panel**: A modern, session-based admin interface for managing the service.
+    *   **Subdomain Management**: Create, delete, and configure settings for multiple domains from a single interface.
+    *   **Per-Domain Configuration**: Override default settings for link timeouts, display values, and usage limits on a per-subdomain basis.
+    *   **Link Management**: View and delete active dynamic links and manage permanent static links for each domain.
+*   **Persistent Storage**: Uses a PostgreSQL backend to store all links, sessions, and configurations.
+*   **Malware Protection**: Integrated with DNS-based blocklists (DNSBL) to prevent shortening of malicious URLs, using the service from [blocklist.de](https://www.blocklist.de/en/rbldns.html).
+*   **Customizable Theming**: Override the default HTML templates with your own to match your brand.
+*   **Deployment Ready**: Designed for modern deployment platforms like Render, with full support for configuration via environment variables.
+*   **Secure by Default**: Implements a strict Content Security Policy (CSP) and other security headers to protect users.
 
 ## Installation
 
 ```bash
-go get github.com/FireRat666/shorter
+git clone https://github.com/FireRat666/shorter.git
+cd shorter
 ```
 
 ## Usage
 
-To run the application locally, ensure you have a shorterdata/config.yaml file configured for your local environment. Then, from the root of the project, run:
+The application is configured via a local file in the shorterdata directory.
+
+If it doesn't exist, copy shorterdata/config.yaml to shorterdata/Config (note the capital 'C' and no extension). This local file is git-ignored and should contain your secrets.
+
+Edit shorterdata/Config with your local settings, especially the DatabaseURL.
+
+Run the application from the root of the project:
 
 ```bash
     go run .
@@ -33,11 +48,13 @@ The application will automatically find the `shorterdata` directory and start th
 
 ### Quick Add Feature
 
-You can quickly create a short, random-key link by making a GET request to the root of the service with the URL to shorten as the query string. This will create a link with the shortest default timeout (as configured in `config.yaml`). **Note**: This method does not support custom keys.
+You can quickly create a short, random-key link by making a GET request to the root of the service with the URL to shorten as the query string. This will create a link with the shortest default timeout. Note: This method does not support custom keys.
 
 For a service running at `shorter.example.com`, you can use `curl` or your browser:
 
+```bash
     curl "https://shorter.example.com/?https://www.google.com"
+```
 
 The service will respond with a page showing the newly created short link.
 
@@ -55,8 +72,8 @@ First, fork this repository to your own GitHub account.
 ### 3. Create a Web Service
 1.  From your Render dashboard, create a new **Web Service**.
 2.  Connect the GitHub repository you forked.
-3.  Render should automatically detect that this is a Go project. Use the following settings:
-    *   **Build Command**: `go build .`
+3.  Render should automatically detect that this is a Go project. Use the following settings to ensure the output is named correctly:
+    *   **Build Command**: `go build -o app .`
     *   **Start Command**: `./app`
 
 ### 4. Configure Environment Variables
@@ -107,23 +124,14 @@ Render will automatically set the `PORT` environment variable, which the applica
 ### 5. Deploy
 With the configuration and environment variables set, you can trigger your first deployment. The application will start, connect to the database, and be available at your Render URL.
 
-## Completed Features
-*   URL Shortening with configurable timeouts for different key lengths.
-*   Custom vanity keys for links.
-*   Secure text pastebin functionality.
-*   Link usage limits (remove after N accesses).
-*   Link inspection by appending `~` to a key.
-*   PostgreSQL backend for persistent storage.
-*   Designed for modern deployment (e.g., Render) with environment variable support for secrets.
-*   Customizable theming via external template files.
-*   Strict Content Security Policy (CSP) with a violation reporting endpoint.
-*   Subdomain Management with per-domain configuration overrides.
-*   **Malware Protection**: Integrated with DNS-based blocklists (DNSBL) to prevent shortening of malicious URLs, using the service from [blocklist.de](https://www.blocklist.de/en/rbldns.html).
-
 ## Future Ideas
-*   **Advanced Subdomain Management**: Create a secure admin interface (e.g., `/admin`) for managing subdomain configurations and links.
+*   **Link Analytics**: Track the number of clicks for each link to provide basic usage statistics.
+*   **Password-Protected Links**: Add an option to require a password before a user can be redirected to the destination URL.
+*   **QR Code Generation**: Automatically generate a downloadable QR code for each created short link.
+*   **Periodic Cleanup**: Add a background job to periodically clean up expired links and sessions from the database, in addition to the current startup cleanup.
+*   **"Remember Me"**: Add a "Remember Me" option to the login page to allow for longer-lived sessions.
+*   **Public API**: Create a RESTful API for programmatic link creation and management, protected by API keys.
 *   **Abuse Reporting**: Add a form, protected by a captcha, for users to report links that violate the Terms of Service.
-
 
 ## License
 
