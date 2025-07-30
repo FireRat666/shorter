@@ -32,7 +32,7 @@ func handleRoot(mux *http.ServeMux) {
 
 		// Route the request based on its method.
 		switch r.Method {
-		case http.MethodGet:
+		case http.MethodGet, http.MethodHead:
 			handleGET(w, r)
 		case http.MethodPost:
 			handlePOST(w, r)
