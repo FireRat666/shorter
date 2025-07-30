@@ -111,9 +111,10 @@ type adminPageVars struct {
 
 // adminEditPageVars holds the data for the subdomain edit page.
 type adminEditPageVars struct {
-	Domain string
-	Config SubdomainConfig
-	Links  []Link
+	Domain   string
+	Config   SubdomainConfig // The raw, specific config for the subdomain
+	Defaults SubdomainConfig // The site-wide defaults for comparison
+	Links    []Link
 }
 
 // adminEditStaticLinkPageVars holds data for the static link edit page.

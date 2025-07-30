@@ -288,7 +288,11 @@ func handleAdminCreateSubdomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse form values into a config struct.
-	newConfig := parseSubdomainForm(r)
+	newConfig, err := parseSubdomainForm(r)
+	if err != nil {
+		logErrors(w, r, err.Error(), http.StatusBadRequest, "Admin form validation failed: "+err.Error())
+		return
+	}
 	// Initialize with empty static links for a new subdomain.
 	newConfig.StaticLinks = make(map[string]string)
 
@@ -358,8 +362,9 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Get the fully merged configuration for this domain to pre-fill the form correctly.
-		subdomainCfg := getSubdomainConfig(domain)
+		// Get the raw, specific config for this domain. If it's the primary domain,
+		// it might not have a specific entry, so we start with an empty one.
+		subdomainCfg, _ := config.Subdomains[domain]
 
 		editTmpl, ok := templateMap["admin_edit"]
 		if !ok {
@@ -374,9 +379,10 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 		}
 
 		pageVars := adminEditPageVars{
-			Domain: domain,
-			Config: subdomainCfg,
-			Links:  links,
+			Domain:   domain,
+			Config:   subdomainCfg,
+			Defaults: config.Defaults,
+			Links:    links,
 		}
 
 		addHeaders(w, r)
@@ -417,14 +423,16 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAdminUpdateConfig(w http.ResponseWriter, r *http.Request, domain string) {
-	updatedConfig := parseSubdomainForm(r)
-
-	// Preserve existing static links, as they are not editable in this form.
-	if existing, ok := config.Subdomains[domain]; ok {
-		updatedConfig.StaticLinks = existing.StaticLinks
-	} else {
-		updatedConfig.StaticLinks = make(map[string]string)
+	updatedConfig, err := parseSubdomainForm(r)
+	if err != nil {
+		logErrors(w, r, err.Error(), http.StatusBadRequest, "Admin form validation failed: "+err.Error())
+		return
 	}
+
+	// Get the current configuration to preserve the static links, which are not
+	// editable on this form.
+	currentConfig := getSubdomainConfig(domain)
+	updatedConfig.StaticLinks = currentConfig.StaticLinks
 
 	// Update the in-memory config.
 	config.Subdomains[domain] = updatedConfig
@@ -593,7 +601,11 @@ func handleCSPReport(w http.ResponseWriter, r *http.Request) {
 
 // parseSubdomainForm extracts and validates subdomain configuration from a form submission.
 // This helper is used by both create and update handlers to reduce code duplication.
-func parseSubdomainForm(r *http.Request) SubdomainConfig {
+func parseSubdomainForm(r *http.Request) (SubdomainConfig, error) {
+	// When parsing the form, an empty value means "use the default",
+	// so we store an empty string/zero value in the config to represent this.
+	// The getSubdomainConfig function will then correctly merge these overrides
+	// with the site-wide defaults.
 	newConfig := SubdomainConfig{
 		LinkLen1Timeout: r.FormValue("link_len1_timeout"),
 		LinkLen1Display: r.FormValue("link_len1_display"),
@@ -605,20 +617,31 @@ func parseSubdomainForm(r *http.Request) SubdomainConfig {
 		CustomDisplay:   r.FormValue("custom_display"),
 	}
 
-	maxUses, err := strconv.Atoi(r.FormValue("max_uses"))
-	if err != nil || maxUses < 0 {
-		maxUses = 0 // Default to 0 if invalid
+	// For the numeric value, if it's empty or invalid, we store 0,
+	// which also signifies "use the default" in our merge logic.
+	maxUsesStr := r.FormValue("max_uses")
+	var maxUses int
+	if maxUsesStr != "" {
+		var err error
+		maxUses, err = strconv.Atoi(maxUsesStr)
+		if err != nil || maxUses < 0 {
+			return SubdomainConfig{}, fmt.Errorf("invalid value for Max Uses: %s", maxUsesStr)
+		}
 	}
 	newConfig.LinkAccessMaxNr = maxUses
 
-	// A more robust implementation would return an error here instead of ignoring invalid timeouts.
-	timeouts := []string{newConfig.LinkLen1Timeout, newConfig.LinkLen2Timeout, newConfig.LinkLen3Timeout, newConfig.CustomTimeout}
+	// Validate all timeout duration formats if they are not empty.
+	timeouts := []string{
+		newConfig.LinkLen1Timeout, newConfig.LinkLen2Timeout, newConfig.LinkLen3Timeout, newConfig.CustomTimeout,
+	}
 	for _, t := range timeouts {
-		if _, err := time.ParseDuration(t); err != nil {
-			// For simplicity, we're not handling this error, but a production app should.
+		if t != "" {
+			if _, err := time.ParseDuration(t); err != nil {
+				return SubdomainConfig{}, fmt.Errorf("invalid timeout duration format: %s", t)
+			}
 		}
 	}
-	return newConfig
+	return newConfig, nil
 }
 
 // handleGET will handle GET requests and redirect to the saved link for a key, return a saved textblob or return a file
