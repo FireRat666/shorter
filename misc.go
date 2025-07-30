@@ -107,7 +107,8 @@ func validRequest(r *http.Request) bool {
 	// After consolidation at startup, config.Subdomains contains all valid hosts.
 	_, validHost := config.Subdomains[r.Host]
 
-	validType := r.Method == http.MethodGet || r.Method == http.MethodPost
+	// Allow GET, POST, and HEAD. HEAD is important for health checks from deployment platforms.
+	validType := r.Method == http.MethodGet || r.Method == http.MethodPost || r.Method == http.MethodHead
 
 	return validHost && validType
 }

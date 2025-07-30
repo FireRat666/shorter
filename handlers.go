@@ -796,11 +796,6 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !validRequest(r) {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Error: invalid request.")
-		return
-	}
-
 	// remove / from the beginning of url and remove any character after the key
 	key := r.URL.Path[1:]
 	extradataindex := strings.IndexAny(key, "/")
