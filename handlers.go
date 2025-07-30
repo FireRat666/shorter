@@ -891,7 +891,7 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 
 	// verify that key only consists of valid characters
 	if !validate(key) {
-		logErrors(w, r, errInvalidKey, http.StatusBadRequest, "Invalid characters in key.")
+		logErrors(w, r, errInvalidKey, http.StatusBadRequest, "Invalid characters in key: "+key)
 		return
 	}
 
