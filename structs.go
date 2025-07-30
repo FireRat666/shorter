@@ -121,11 +121,12 @@ type loginPageVars struct {
 
 // adminPageVars holds the data for the main admin dashboard.
 type adminPageVars struct {
-	Subdomains     map[string]SubdomainConfig
-	Defaults       SubdomainConfig
-	PrimaryDomain  string
-	CssSRIHash     string
-	AdminJsSRIHash string
+	Subdomains          map[string]SubdomainConfig
+	PrimaryDomainConfig SubdomainConfig
+	Defaults            SubdomainConfig
+	PrimaryDomain       string
+	CssSRIHash          string
+	AdminJsSRIHash      string
 }
 
 // adminEditPageVars holds the data for the subdomain edit page.

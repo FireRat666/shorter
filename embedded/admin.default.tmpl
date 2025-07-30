@@ -27,8 +27,8 @@
                     <tbody>
                         <tr>
                             <td>{{.PrimaryDomain}} <small>(Default Settings)</small></td>
-                            <td>{{.Defaults.LinkLen1Display}}</td>
-                            <td>{{len .Defaults.StaticLinks}}</td>
+                            <td>{{.PrimaryDomainConfig.LinkLen1Display}}</td>
+                            <td>{{len .PrimaryDomainConfig.StaticLinks}}</td>
                             <td><a href="/admin/edit?domain={{.PrimaryDomain}}" class="edit-button">Configure</a></td>
                         </tr>
                     </tbody>
@@ -52,7 +52,7 @@
                         {{range $domain, $config := .Subdomains}}
                         <tr>
                             <td>{{$domain}}</td>
-                            <td>{{$config.LinkLen1Timeout}}</td>
+                            <td>{{$config.LinkLen1Display}}</td>
                             <td>{{len $config.StaticLinks}}</td>
                             <td><a href="/admin/edit?domain={{$domain}}" class="edit-button">Edit</a></td>
                             <td>

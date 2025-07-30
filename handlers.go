@@ -311,11 +311,12 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pageVars := adminPageVars{
-		Subdomains:     displaySubdomains,
-		Defaults:       config.Defaults,
-		PrimaryDomain:  config.PrimaryDomain,
-		CssSRIHash:     cssSRIHash,
-		AdminJsSRIHash: adminJsSRIHash,
+		Subdomains:          displaySubdomains,
+		PrimaryDomainConfig: getSubdomainConfig(config.PrimaryDomain),
+		Defaults:            config.Defaults,
+		PrimaryDomain:       config.PrimaryDomain,
+		CssSRIHash:          cssSRIHash,
+		AdminJsSRIHash:      adminJsSRIHash,
 	}
 
 	if err := adminTmpl.Execute(w, pageVars); err != nil {
