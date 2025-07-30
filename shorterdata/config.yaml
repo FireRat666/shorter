@@ -35,6 +35,9 @@ LinkLen3: 3
 MaxKeyLen: 64
 MaxFileSize: 10000000 # 10MB
 MinSizeToGzip: 128
+# How often to run the automatic cleanup of expired links and sessions.
+# Use Go duration format (e.g., "24h", "1h30m"). Defaults to 24h if not set.
+CleanupInterval: "24h"
 LowRAM: false
 
 # Content-Security-Policy header value.

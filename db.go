@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -182,6 +183,23 @@ func deleteExpiredLinksFromDB(ctx context.Context) (int64, error) {
 	return rowsAffected, nil
 }
 
+// deleteExpiredSessionsFromDB removes all sessions that have passed their expiration date.
+func deleteExpiredSessionsFromDB(ctx context.Context) (int64, error) {
+	query := `DELETE FROM sessions WHERE expires_at <= NOW();`
+	result, err := db.ExecContext(ctx, query)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete expired sessions: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		// This is less likely, but good to handle.
+		return 0, fmt.Errorf("could not get rows affected after deleting expired sessions: %w", err)
+	}
+
+	return rowsAffected, nil
+}
+
 // getLinksForDomain retrieves all active links for a specific domain, ordered by creation date.
 func getLinksForDomain(ctx context.Context, domain string) ([]Link, error) {
 	query := `
@@ -227,16 +245,48 @@ func deleteLink(ctx context.Context, key, domain string) error {
 	return nil
 }
 
+// errKeyCollision is a sentinel error used to indicate a key collision with an *active* link.
+var errKeyCollision = errors.New("active key collision")
+
 // createLinkInDB inserts a new link record into the database.
+// It uses a conditional "upsert" to reclaim keys from expired links.
 func createLinkInDB(ctx context.Context, link Link) error {
+	// This query attempts to insert a new link.
+	// If a link with the same (key, domain) already exists, it triggers the ON CONFLICT clause.
+	// The DO UPDATE part will only execute if the WHERE condition is met, meaning the
+	// existing link is expired by time or has been used up.
+	// If the existing link is still active, the WHERE condition is false, the UPDATE is
+	// skipped, and zero rows are affected.
 	query := `
 		INSERT INTO links (key, domain, link_type, data, is_compressed, times_allowed, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7);`
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (key, domain) DO UPDATE
+		SET
+			link_type = EXCLUDED.link_type,
+			data = EXCLUDED.data,
+			is_compressed = EXCLUDED.is_compressed,
+			times_allowed = EXCLUDED.times_allowed,
+			times_used = 0, -- Reset usage count for the new link
+			expires_at = EXCLUDED.expires_at,
+			created_at = NOW()
+		WHERE
+			links.expires_at <= NOW() OR (links.times_allowed > 0 AND links.times_used >= links.times_allowed);`
 
-	_, err := db.ExecContext(ctx, query, link.Key, link.Domain, link.LinkType, link.Data, link.IsCompressed, link.TimesAllowed, link.ExpiresAt)
+	result, err := db.ExecContext(ctx, query, link.Key, link.Domain, link.LinkType, link.Data, link.IsCompressed, link.TimesAllowed, link.ExpiresAt)
 	if err != nil {
-		return fmt.Errorf("failed to insert link into database: %w", err)
+		return fmt.Errorf("failed to insert or update link in database: %w", err)
 	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected after link creation: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		// This means the key exists and is still active. We must signal a collision.
+		return errKeyCollision
+	}
+
 	return nil
 }
 
@@ -255,11 +305,13 @@ func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 	defer tx.Rollback()
 
 	link := &Link{}
-	// The query checks for validity (not expired, not overused) and locks the row for updating.
+	// The query intentionally does NOT check for expiration here.
+	// We will check for expiration in the application logic so we can perform
+	// a "just-in-time" deletion of the expired link.
 	querySelect := `
 		SELECT key, domain, link_type, data, is_compressed, times_allowed, times_used, expires_at, created_at
 		FROM links
-		WHERE key = $1 AND domain = $2 AND expires_at > NOW() AND (times_allowed = 0 OR times_used < times_allowed)
+		WHERE key = $1 AND domain = $2
 		FOR UPDATE;`
 
 	err = tx.QueryRowContext(ctx, querySelect, key, domain).Scan(
@@ -279,6 +331,21 @@ func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 			return nil, nil // No link found, not an error.
 		}
 		return nil, fmt.Errorf("failed to get link from database: %w", err)
+	}
+
+	// Check for expiration or overuse in the application logic.
+	if time.Now().After(link.ExpiresAt) || (link.TimesAllowed > 0 && link.TimesUsed >= link.TimesAllowed) {
+		// The link is expired or used up. Delete it now within the same transaction.
+		deleteQuery := `DELETE FROM links WHERE key = $1 AND domain = $2;`
+		if _, err := tx.ExecContext(ctx, deleteQuery, key, domain); err != nil {
+			// Log the deletion error but still return nil to the user, as the link is invalid.
+			slogger.Error("Failed to perform just-in-time deletion of invalid link", "key", key, "domain", domain, "error", err)
+		} else if slogger != nil {
+			slogger.Info("Performed just-in-time deletion of invalid link", "key", key, "domain", domain)
+		}
+		// We must commit the transaction to save the deletion.
+		tx.Commit()
+		return nil, nil // Return nil as if the link was not found.
 	}
 
 	// Increment the usage count for the retrieved link.

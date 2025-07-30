@@ -23,6 +23,7 @@ type Config struct {
 	MaxFileSize       int64                      `yaml:"MaxFileSize"`
 	MinSizeToGzip     int                        `yaml:"MinSizeToGzip"`
 	LowRAM            bool                       `yaml:"LowRAM"`
+	CleanupInterval   string                     `yaml:"CleanupInterval"`
 	CSP               string                     `yaml:"CSP"`
 	Admin             AdminConfig                `yaml:"Admin"`
 	MalwareProtection MalwareProtectionConfig    `yaml:"MalwareProtection"`

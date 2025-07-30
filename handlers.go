@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/FireRat666/shorter/web"
-	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -1029,16 +1028,14 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 			}
 			err = createLinkInDB(ctx, *link)
 
-			// If the insert was successful, break the loop.
+			// If the insert was successful, we're done.
 			if err == nil {
 				break
 			}
 
-			// Check if the error is a PostgreSQL unique violation (duplicate key).
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-				// This is a key collision. The loop will continue and try again.
-				slogger.Debug("Key collision detected, retrying...", "key", link.Key, "attempt", i+1)
+			// Check if the error was a collision with an *active* link.
+			if errors.Is(err, errKeyCollision) {
+				slogger.Debug("Key collision with active link, generating new key...", "key", link.Key, "attempt", i+1)
 				continue
 			}
 
@@ -1051,14 +1048,12 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 	}
 
 	if err != nil {
-		var pgErr *pgconn.PgError
-		// Check if the final error was a duplicate key error.
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if errors.Is(err, errKeyCollision) {
 			// keyLength is 0 for custom keys, non-zero for random keys.
 			if keyLength == 0 {
-				logErrors(w, r, errInvalidKeyUsed, http.StatusConflict, "Custom key is already in use: "+err.Error())
+				logErrors(w, r, errInvalidKeyUsed, http.StatusConflict, "Custom key is already in use by an active link.")
 			} else {
-				logErrors(w, r, "Could not generate a unique link. Please try a longer link length.", http.StatusConflict, "Failed to create link after multiple key collision retries: "+err.Error())
+				logErrors(w, r, "Could not generate a unique link. Please try a longer link length.", http.StatusConflict, "Failed to create link after multiple key collision retries.")
 			}
 			return
 		}

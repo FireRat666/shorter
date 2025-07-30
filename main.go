@@ -113,6 +113,9 @@ func main() {
 		}
 	}()
 
+	// Start the periodic cleanup job in the background.
+	go startCleanupTicker()
+
 	// 9. Set up a channel to listen for OS signals for graceful shutdown.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -196,4 +199,47 @@ func loadSubdomainsAndMerge(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// startCleanupTicker starts a background job that periodically cleans up expired
+// records from the database.
+func startCleanupTicker() {
+	// Default to 24 hours if the interval is not set or invalid.
+	interval := 24 * time.Hour
+	if config.CleanupInterval != "" {
+		parsedInterval, err := time.ParseDuration(config.CleanupInterval)
+		if err != nil {
+			slogger.Error("Invalid CleanupInterval format, using default 24h", "interval", config.CleanupInterval, "error", err)
+		} else {
+			interval = parsedInterval
+		}
+	}
+
+	slogger.Info("Periodic cleanup job scheduled", "interval", interval.String())
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	// Run the cleanup immediately on start, then on each tick.
+	for ; ; <-ticker.C {
+		runCleanup()
+	}
+}
+
+// runCleanup performs the actual deletion of expired links and sessions.
+func runCleanup() {
+	slogger.Info("Running periodic cleanup...")
+
+	// Clean up expired links.
+	if linksDeleted, err := deleteExpiredLinksFromDB(context.Background()); err != nil {
+		slogger.Error("Error during periodic link cleanup", "error", err)
+	} else if linksDeleted > 0 {
+		slogger.Info("Periodic cleanup deleted expired links", "count", linksDeleted)
+	}
+
+	// Clean up expired sessions.
+	if sessionsDeleted, err := deleteExpiredSessionsFromDB(context.Background()); err != nil {
+		slogger.Error("Error during periodic session cleanup", "error", err)
+	} else if sessionsDeleted > 0 {
+		slogger.Info("Periodic cleanup deleted expired sessions", "count", sessionsDeleted)
+	}
 }
