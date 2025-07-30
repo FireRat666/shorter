@@ -291,3 +291,10 @@ input[type=submit].admin-submit-button {
     text-decoration: none;
     display: inline-block;
 }
+
+/* Style for admin form inputs that have a specific override value */
+input[type="text"].is-overridden,
+input[type="number"].is-overridden,
+select.is-overridden {
+    border: 1px solid #ff9900; /* An orange border to indicate an override */
+}

@@ -17,27 +17,27 @@
                 <input type="hidden" name="subdomain" value="{{.Domain}}">
 
                 <label for="link_len1_timeout">Timeout (Len 1):</label>
-                <input type="text" id="link_len1_timeout" name="link_len1_timeout" class="inputbox" value="{{.Config.LinkLen1Timeout}}" placeholder="Default: {{.Defaults.LinkLen1Timeout}}">
+                <input type="text" id="link_len1_timeout" name="link_len1_timeout" class="inputbox {{if ne .Config.LinkLen1Timeout .Defaults.LinkLen1Timeout}}is-overridden{{end}}" value="{{.Config.LinkLen1Timeout}}" placeholder="Default: {{.Defaults.LinkLen1Timeout}}">
                 <label for="link_len1_display">Display (Len 1):</label>
-                <input type="text" id="link_len1_display" name="link_len1_display" class="inputbox" value="{{.Config.LinkLen1Display}}" placeholder="Default: {{.Defaults.LinkLen1Display}}">
+                <input type="text" id="link_len1_display" name="link_len1_display" class="inputbox {{if ne .Config.LinkLen1Display .Defaults.LinkLen1Display}}is-overridden{{end}}" value="{{.Config.LinkLen1Display}}" placeholder="Default: {{.Defaults.LinkLen1Display}}">
 
                 <label for="link_len2_timeout">Timeout (Len 2):</label>
-                <input type="text" id="link_len2_timeout" name="link_len2_timeout" class="inputbox" value="{{.Config.LinkLen2Timeout}}" placeholder="Default: {{.Defaults.LinkLen2Timeout}}">
+                <input type="text" id="link_len2_timeout" name="link_len2_timeout" class="inputbox {{if ne .Config.LinkLen2Timeout .Defaults.LinkLen2Timeout}}is-overridden{{end}}" value="{{.Config.LinkLen2Timeout}}" placeholder="Default: {{.Defaults.LinkLen2Timeout}}">
                 <label for="link_len2_display">Display (Len 2):</label>
-                <input type="text" id="link_len2_display" name="link_len2_display" class="inputbox" value="{{.Config.LinkLen2Display}}" placeholder="Default: {{.Defaults.LinkLen2Display}}">
+                <input type="text" id="link_len2_display" name="link_len2_display" class="inputbox {{if ne .Config.LinkLen2Display .Defaults.LinkLen2Display}}is-overridden{{end}}" value="{{.Config.LinkLen2Display}}" placeholder="Default: {{.Defaults.LinkLen2Display}}">
 
                 <label for="link_len3_timeout">Timeout (Len 3):</label>
-                <input type="text" id="link_len3_timeout" name="link_len3_timeout" class="inputbox" value="{{.Config.LinkLen3Timeout}}" placeholder="Default: {{.Defaults.LinkLen3Timeout}}">
+                <input type="text" id="link_len3_timeout" name="link_len3_timeout" class="inputbox {{if ne .Config.LinkLen3Timeout .Defaults.LinkLen3Timeout}}is-overridden{{end}}" value="{{.Config.LinkLen3Timeout}}" placeholder="Default: {{.Defaults.LinkLen3Timeout}}">
                 <label for="link_len3_display">Display (Len 3):</label>
-                <input type="text" id="link_len3_display" name="link_len3_display" class="inputbox" value="{{.Config.LinkLen3Display}}" placeholder="Default: {{.Defaults.LinkLen3Display}}">
+                <input type="text" id="link_len3_display" name="link_len3_display" class="inputbox {{if ne .Config.LinkLen3Display .Defaults.LinkLen3Display}}is-overridden{{end}}" value="{{.Config.LinkLen3Display}}" placeholder="Default: {{.Defaults.LinkLen3Display}}">
 
                 <label for="custom_timeout">Timeout (Custom):</label>
-                <input type="text" id="custom_timeout" name="custom_timeout" class="inputbox" value="{{.Config.CustomTimeout}}" placeholder="Default: {{.Defaults.CustomTimeout}}">
+                <input type="text" id="custom_timeout" name="custom_timeout" class="inputbox {{if ne .Config.CustomTimeout .Defaults.CustomTimeout}}is-overridden{{end}}" value="{{.Config.CustomTimeout}}" placeholder="Default: {{.Defaults.CustomTimeout}}">
                 <label for="custom_display">Display (Custom):</label>
-                <input type="text" id="custom_display" name="custom_display" class="inputbox" value="{{.Config.CustomDisplay}}" placeholder="Default: {{.Defaults.CustomDisplay}}">
+                <input type="text" id="custom_display" name="custom_display" class="inputbox {{if ne .Config.CustomDisplay .Defaults.CustomDisplay}}is-overridden{{end}}" value="{{.Config.CustomDisplay}}" placeholder="Default: {{.Defaults.CustomDisplay}}">
 
                 <label for="max_uses">Max Uses:</label>
-                <input type="number" id="max_uses" name="max_uses" class="inputbox" value="{{if ne .Config.LinkAccessMaxNr 0}}{{.Config.LinkAccessMaxNr}}{{end}}" placeholder="Default: {{.Defaults.LinkAccessMaxNr}}" min="0">
+                <input type="number" id="max_uses" name="max_uses" class="inputbox {{if ne .Config.LinkAccessMaxNr .Defaults.LinkAccessMaxNr}}is-overridden{{end}}" value="{{.Config.LinkAccessMaxNr}}" placeholder="Default: {{.Defaults.LinkAccessMaxNr}}" min="0">
 
                 <input type="submit" value="Update Subdomain" class="admin-submit-button">
             </form>

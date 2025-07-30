@@ -362,9 +362,9 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Get the raw, specific config for this domain. If it's the primary domain,
-		// it might not have a specific entry, so we start with an empty one.
-		subdomainCfg, _ := config.Subdomains[domain]
+		// Get the raw, specific config for this domain. For the primary domain,
+		// this will be an empty struct if no specific overrides have been saved.
+		subdomainCfg := config.Subdomains[domain]
 
 		editTmpl, ok := templateMap["admin_edit"]
 		if !ok {
