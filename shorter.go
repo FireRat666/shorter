@@ -84,7 +84,21 @@ func main() {
 		config.Admin.PassHash = adminPassHash
 	}
 
+	// On Render, the primary domain can be set via an environment variable.
+	if primaryDomain := os.Getenv("SHORTER_PRIMARY_DOMAIN"); primaryDomain != "" {
+		config.PrimaryDomain = primaryDomain
+	}
+
 	// --- END: Render Compatibility ---
+
+	// --- START: Finalize Configuration ---
+	// If PrimaryDomain is not set via config or environment, fall back to the first domain in DomainNames.
+	// This ensures there is always a primary domain if any domains are configured.
+	if config.PrimaryDomain == "" && len(config.DomainNames) > 0 {
+		config.PrimaryDomain = config.DomainNames[0]
+		// We can't log here yet as the logger is not initialized, but this is a safe fallback.
+	}
+	// --- END: Finalize Configuration ---
 
 	// If BaseDir is not specified in the config, automatically find the 'shorterdata' directory.
 	if config.BaseDir == "" {
@@ -147,6 +161,20 @@ func main() {
 		}
 		slogger.Info("Successfully loaded and merged subdomains from database", "db_count", len(dbSubdomains), "total_count", len(config.Subdomains))
 	}
+
+	// --- START: Consolidate Domains ---
+	// Ensure all domains from DomainNames are present in the Subdomains map
+	// to make it the single source of truth for valid hosts.
+	if config.Subdomains == nil {
+		config.Subdomains = make(map[string]SubdomainConfig)
+	}
+	for _, domain := range config.DomainNames {
+		if _, exists := config.Subdomains[domain]; !exists {
+			// Add the domain with an empty config, so it will use the defaults.
+			config.Subdomains[domain] = SubdomainConfig{}
+		}
+	}
+	// --- END: Consolidate Domains ---
 
 	initResolver()
 

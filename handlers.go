@@ -279,16 +279,10 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine the primary domain from the main config.
-	var primaryDomain string
-	if len(config.DomainNames) > 0 {
-		primaryDomain = config.DomainNames[0]
-	}
-
 	// Create a map for display that explicitly excludes the primary domain.
 	displaySubdomains := make(map[string]SubdomainConfig)
 	for domain, subConfig := range config.Subdomains {
-		if domain != primaryDomain {
+		if domain != config.PrimaryDomain {
 			displaySubdomains[domain] = subConfig
 		}
 	}
@@ -296,7 +290,7 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 	pageVars := adminPageVars{
 		Subdomains:     displaySubdomains,
 		Defaults:       config.Defaults,
-		PrimaryDomain:  primaryDomain,
+		PrimaryDomain:  config.PrimaryDomain,
 		CssSRIHash:     cssSRIHash,
 		AdminJsSRIHash: adminJsSRIHash,
 	}
@@ -346,8 +340,8 @@ func handleAdminDeleteSubdomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// As a safeguard, prevent the primary domain from being deleted.
-	if len(config.DomainNames) > 0 && subdomainName == config.DomainNames[0] {
-		logErrors(w, r, "Cannot delete the primary domain.", http.StatusBadRequest, "Attempted to delete primary domain")
+	if subdomainName == config.PrimaryDomain {
+		logErrors(w, r, "Cannot delete the primary domain.", http.StatusBadRequest, "Attempted to delete primary domain: "+subdomainName)
 		return
 	}
 
@@ -379,21 +373,13 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Confirm that the domain is either the primary domain or a configured subdomain.
-		var isPrimaryDomain bool
-		if len(config.DomainNames) > 0 && domain == config.DomainNames[0] {
-			isPrimaryDomain = true
-		}
-		_, isSubdomain := config.Subdomains[domain]
-
-		if !isPrimaryDomain && !isSubdomain {
-			logErrors(w, r, "Subdomain not found.", http.StatusNotFound, "Admin tried to edit non-existent subdomain: "+domain)
+		// Confirm that the domain is a configured domain.
+		// After consolidation, config.Subdomains contains all valid domains.
+		subdomainCfg, ok := config.Subdomains[domain]
+		if !ok {
+			logErrors(w, r, "Domain not found.", http.StatusNotFound, "Admin tried to edit non-existent domain: "+domain)
 			return
 		}
-
-		// Get the raw, specific config for this domain. For the primary domain,
-		// this will be an empty struct if no specific overrides have been saved.
-		subdomainCfg := config.Subdomains[domain]
 
 		editTmpl, ok := templateMap["admin_edit"]
 		if !ok {

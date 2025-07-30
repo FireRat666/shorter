@@ -110,23 +110,10 @@ func getSubdomainConfig(host string) SubdomainConfig {
 
 // validRequest returns true if the host string matches any of the valid hosts specified in the config and if the request is of a valid method (GET, POST)
 func validRequest(r *http.Request) bool {
-	var validHost, validType bool
-	for _, d := range config.DomainNames {
-		if r.Host == d {
-			validHost = true
-			break
-		}
-	}
+	// After consolidation at startup, config.Subdomains contains all valid hosts.
+	_, validHost := config.Subdomains[r.Host]
 
-	// If the host was not in the main DomainNames list, check if it's defined
-	// as a key in the Subdomains map. This avoids redundant configuration.
-	if !validHost {
-		_, validHost = config.Subdomains[r.Host]
-	}
-
-	if r.Method == "GET" || r.Method == "POST" {
-		validType = true
-	}
+	validType := r.Method == http.MethodGet || r.Method == http.MethodPost
 
 	return validHost && validType
 }

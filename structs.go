@@ -35,6 +35,7 @@ type AdminConfig struct {
 
 // Config holds all the configuration for the application, read from the config file.
 type Config struct {
+	PrimaryDomain     string                  `yaml:"PrimaryDomain"`
 	AddressPort       string                  `yaml:"AddressPort"`
 	DomainNames       []string                `yaml:"DomainNames"`
 	BaseDir           string                  `yaml:"BaseDir"`
