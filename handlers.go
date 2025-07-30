@@ -511,6 +511,67 @@ func handleAdminDeleteDynamicLink(w http.ResponseWriter, r *http.Request, domain
 	http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
 }
 
+func handleAdminEditStaticLinkPage(w http.ResponseWriter, r *http.Request) {
+	domain := r.URL.Query().Get("domain")
+	key := r.URL.Query().Get("key")
+
+	if domain == "" || key == "" {
+		logErrors(w, r, "Missing domain or key parameter.", http.StatusBadRequest, "Admin edit static link page requested without domain or key")
+		return
+	}
+
+	// Get the current config for this domain to find the static link.
+	subdomainCfg := getSubdomainConfig(domain)
+	destination, ok := subdomainCfg.StaticLinks[key]
+	if !ok {
+		logErrors(w, r, "Static link not found.", http.StatusNotFound, "Admin tried to edit non-existent static link")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		editTmpl, ok := templateMap["admin_edit_static_link"]
+		if !ok {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_edit_static_link template")
+			return
+		}
+
+		pageVars := adminEditStaticLinkPageVars{
+			Domain:      domain,
+			Key:         key,
+			Destination: destination,
+		}
+
+		addHeaders(w, r)
+		if err := editTmpl.Execute(w, pageVars); err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_edit_static_link template: "+err.Error())
+		}
+		logOK(r, http.StatusOK)
+
+	case http.MethodPost:
+		if err := r.ParseForm(); err != nil {
+			logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Admin edit static link form parse error: "+err.Error())
+			return
+		}
+		newDestURL := r.FormValue("new_static_url")
+		if !strings.HasPrefix(newDestURL, "http://") && !strings.HasPrefix(newDestURL, "https://") {
+			newDestURL = "https://" + newDestURL
+		}
+
+		// Update the destination URL and save the entire subdomain config back to the DB.
+		subdomainCfg.StaticLinks[key] = newDestURL
+		config.Subdomains[domain] = subdomainCfg // Update in-memory config
+
+		if err := saveSubdomainConfigToDB(r.Context(), domain, subdomainCfg); err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to update static link: "+err.Error())
+			return
+		}
+
+		// Redirect back to the main edit page for the domain.
+		http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
+	}
+}
+
 func handleCSPReport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)

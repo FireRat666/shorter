@@ -341,6 +341,9 @@ var defaultAdminHTML string
 //go:embed embedded/admin_edit.default.tmpl
 var defaultAdminEditHTML string
 
+//go:embed embedded/admin_edit_static_link.default.tmpl
+var defaultAdminEditStaticLinkHTML string
+
 func initTemplates() {
 	// templateMap should be used as read only after initTemplates() has returned
 	templateMap = make(map[string]*template.Template)
@@ -355,6 +358,8 @@ func initTemplates() {
 	loadTemplate("admin", defaultAdminHTML)
 	// Create an admin edit page.
 	loadTemplate("admin_edit", defaultAdminEditHTML)
+	// Create a page for editing static links.
+	loadTemplate("admin_edit_static_link", defaultAdminEditStaticLinkHTML)
 	// Create a generic error page.
 	loadTemplate("error", defaultErrorHTML)
 }

@@ -162,6 +162,7 @@ func main() {
 	mux.HandleFunc("/csp-report", handleCSPReport) // defined in handlers.go
 	mux.HandleFunc("/admin", basicAuth(handleAdmin))
 	mux.HandleFunc("/admin/edit", basicAuth(handleAdminEditPage))
+	mux.HandleFunc("/admin/edit_static_link", basicAuth(handleAdminEditStaticLinkPage))
 	handleRobots(mux) // defined in handlers.go
 	handleRoot(mux)   // defined in handlers.go
 

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="color-scheme" content="dark">
+    <link rel="stylesheet" type="text/css" href="/shorter.css">
+    <title>Edit Static Link</title>
+</head>
+<body>
+    <div class="content">
+        <div class="header">
+            <h1>Edit Static Link</h1>
+        </div>
+        <div class="tos">
+            <p>Editing static link '<strong>{{.Key}}</strong>' for domain '<strong>{{.Domain}}</strong>'.</p>
+            <form class="admin-form" method="POST" action="/admin/edit_static_link?domain={{.Domain}}&key={{.Key}}">
+                <label for="new_static_url">New Destination URL:</label>
+                <input type="text" id="new_static_url" name="new_static_url" class="inputbox" value="{{.Destination}}" required>
+
+                <input type="submit" value="Update Static Link" class="admin-submit-button">
+            </form>
+            <a href="/admin/edit?domain={{.Domain}}" style="display: block; margin-top: 1em;">Back to Domain Management</a>
+        </div>
+    </div>
+</body>
+</html>

@@ -116,6 +116,13 @@ type adminEditPageVars struct {
 	Links  []Link
 }
 
+// adminEditStaticLinkPageVars holds data for the static link edit page.
+type adminEditStaticLinkPageVars struct {
+	Domain      string
+	Key         string
+	Destination string
+}
+
 // CSPReport represents the structure of a CSP violation report sent by the browser.
 type CSPReport struct {
 	CSPReport struct {

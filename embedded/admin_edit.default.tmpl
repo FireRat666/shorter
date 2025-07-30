@@ -52,6 +52,7 @@
                         <tr>
                             <th>Key</th>
                             <th>Destination URL</th>
+                            <th>Edit</th>
                             <th>Delete</th>
                         </tr>
                     </thead>
@@ -60,6 +61,7 @@
                         <tr>
                             <td>{{$key}}</td>
                             <td>{{$url}}</td>
+                            <td><a href="/admin/edit_static_link?domain={{$.Domain}}&key={{$key}}" class="edit-button">Edit</a></td>
                             <td>
                                 <form method="POST" action="/admin/edit?domain={{$.Domain}}">
                                     <input type="hidden" name="action" value="delete_static_link">
