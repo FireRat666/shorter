@@ -38,7 +38,7 @@ MinSizeToGzip: 128
 LowRAM: false
 
 # Content-Security-Policy header value.
-CSP: "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /csp-report"
+CSP: "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; report-uri /csp-report"
 
 # Malware Protection settings
 MalwareProtection:

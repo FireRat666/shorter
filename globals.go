@@ -32,6 +32,9 @@ var (
 	// ImageMap holds the loaded image assets.
 	ImageMap map[string][]byte
 
+	// jsFileMap holds the content of JS files read at startup.
+	jsFileMap map[string][]byte
+
 	// SRI hashes for CSS and JS files, calculated at startup.
 	cssSRIHash        string
 	adminJsSRIHash    string

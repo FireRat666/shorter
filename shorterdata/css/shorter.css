@@ -309,3 +309,9 @@ select.is-overridden {
     display: block;
     margin-top: 1em;
 }
+
+/* Styles for the logout page */
+.logout-message {
+    font-size: 1.2em;
+    text-align: center;
+}

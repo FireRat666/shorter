@@ -194,16 +194,20 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, scheme+"://"+r.Host, http.StatusSeeOther)
 }
 
+// sendUnauthorized sends a 401 Unauthorized response, prompting the browser for credentials.
+func sendUnauthorized(w http.ResponseWriter, r *http.Request) {
+	addHeaders(w, r)
+	w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+	// Add cache control headers to prevent the browser from caching the 401 response.
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	w.Header().Set("Pragma", "no-cache") // For older HTTP/1.0 clients
+	w.Header().Set("Expires", "0")       // For older HTTP/1.0 clients
+	http.Error(w, "Unauthorized", http.StatusUnauthorized)
+}
+
 // basicAuth is a middleware that protects handlers with Basic Authentication.
 func basicAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Helper function to send the unauthorized response.
-		unauthorized := func() {
-			addHeaders(w, r) // Add security headers to the auth error response.
-			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		}
-
 		// Check if admin credentials are configured. If not, disable the endpoint.
 		if config.Admin.User == "" || config.Admin.PassHash == "" {
 			http.NotFound(w, r)
@@ -214,7 +218,10 @@ func basicAuth(next http.HandlerFunc) http.HandlerFunc {
 		// doesn't match, send an unauthorized response.
 		user, pass, ok := r.BasicAuth()
 		if !ok || user != config.Admin.User || bcrypt.CompareHashAndPassword([]byte(config.Admin.PassHash), []byte(pass)) != nil {
-			unauthorized()
+			if slogger != nil {
+				slogger.Debug("Basic auth failed, sending 401.", "path", r.URL.Path, "user", user, "auth_ok", ok)
+			}
+			sendUnauthorized(w, r)
 			return
 		}
 
@@ -235,6 +242,8 @@ func handleAdminRoutes(mux *http.ServeMux) {
 	adminRouter.HandleFunc("/", basicAuth(handleAdmin)) // Matches /admin
 	adminRouter.HandleFunc("/edit", basicAuth(handleAdminEditPage))
 	adminRouter.HandleFunc("/edit_static_link", basicAuth(handleAdminEditStaticLinkPage))
+	// The logout action itself doesn't need auth; its only job is to send a 401.
+	adminRouter.HandleFunc("/logout", handleAdminLogout)
 
 	// Create a handler that first strips the "/admin" prefix, then passes to the adminRouter.
 	// This is the standard way to handle sub-routing.
@@ -306,6 +315,13 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin template: "+err.Error())
 	}
 	logOK(r, http.StatusOK)
+}
+
+// handleAdminLogout forces a logout by sending a 401 response.
+// The handler is not wrapped in basicAuth. Its only purpose is to send the 401
+// signal to the browser to clear its cached credentials.
+func handleAdminLogout(w http.ResponseWriter, r *http.Request) {
+	sendUnauthorized(w, r)
 }
 
 func handleAdminCreateSubdomain(w http.ResponseWriter, r *http.Request) {
@@ -693,6 +709,19 @@ func parseSubdomainForm(r *http.Request) (SubdomainConfig, error) {
 // handleGET will handle GET requests and redirect to the saved link for a key, return a saved textblob or return a file
 func handleGET(w http.ResponseWriter, r *http.Request) {
 
+	// This is a safeguard. Requests for static assets should be caught by their specific
+	// handlers. If a request for such a path reaches this general-purpose handler, it
+	// means the specific handler was not registered (likely due to a missing file at
+	// startup). We should return a 404 Not Found instead of trying to process it as a
+	// short link.
+	if strings.HasPrefix(r.URL.Path, "/js/") ||
+		strings.HasPrefix(r.URL.Path, "/css/") ||
+		strings.HasPrefix(r.URL.Path, "/img/") ||
+		strings.HasPrefix(r.URL.Path, "/admin/") {
+		logErrors(w, r, "Not Found", http.StatusNotFound, "Static asset or reserved path not found, handler not registered: "+r.URL.Path)
+		return
+	}
+
 	if !validRequest(r) {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Error: invalid request.")
 		return
@@ -994,25 +1023,13 @@ func handleCSS(mux *http.ServeMux) error {
 }
 
 func handleJS(mux *http.ServeMux) {
-	// Explicitly handle each known JS file to mirror the logic in calculateSRIHashes
-	// and ensure consistency.
-
-	// admin.js
-	adminJSPath := filepath.Join(config.BaseDir, "js", "admin.js")
-	adminJSBytes, err := os.ReadFile(adminJSPath)
-	if err != nil {
-		slogger.Warn("admin.js not found, skipping handler setup.", "path", adminJSPath)
-	} else {
-		mux.HandleFunc("/js/admin.js", getSingleFileHandler(adminJSBytes, "application/javascript"))
-	}
-
-	// showText.js
-	showTextJSPath := filepath.Join(config.BaseDir, "js", "showText.js")
-	showTextJSBytes, err := os.ReadFile(showTextJSPath)
-	if err != nil {
-		slogger.Warn("showText.js not found, skipping handler setup.", "path", showTextJSPath)
-	} else {
-		mux.HandleFunc("/js/showText.js", getSingleFileHandler(showTextJSBytes, "application/javascript"))
+	// The jsFileMap is already populated by calculateSRIHashes at startup.
+	// We just need to create handlers for each file in the map.
+	// This ensures the content being served is identical to the content that was hashed.
+	for fileName, fileBytes := range jsFileMap {
+		// The path for the handler should be /js/<fileName>
+		path := "/js/" + fileName
+		mux.HandleFunc(path, getSingleFileHandler(fileBytes, "application/javascript"))
 	}
 }
 
@@ -1029,18 +1046,14 @@ func getSingleFileHandler(f []byte, mimeType string) (handleFile func(w http.Res
 
 	handleFile = func(w http.ResponseWriter, r *http.Request) {
 		addHeaders(w, r)
-		if validRequest(r) {
-			w.Header().Add("Content-Type", mimeType)
-			w.Header().Add("Cache-Control", "max-age=2592000, public")
-			if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") && tryGzip {
-				w.Header().Add("content-encoding", "gzip")
-				w.Write(cf)
-				return
-			}
-			w.Write(f)
+		w.Header().Add("Content-Type", mimeType)
+		w.Header().Add("Cache-Control", "max-age=2592000, public")
+		if strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") && tryGzip {
+			w.Header().Add("content-encoding", "gzip")
+			w.Write(cf)
 			return
 		}
-		http.Error(w, errServerError, http.StatusInternalServerError)
+		w.Write(f)
 	}
 	return
 }
@@ -1048,19 +1061,15 @@ func getSingleFileHandler(f []byte, mimeType string) (handleFile func(w http.Res
 func getImgHandler(imageName string, mimeType string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		addHeaders(w, r)
-		if validRequest(r) {
-			w.Header().Add("Content-Type", mimeType)
-			w.Header().Add("Cache-Control", "max-age=2592000, public")
-			// Serve the image directly from the map using its simple filename key.
-			if data, ok := ImageMap[imageName]; ok {
-				w.Write(data)
-			} else {
-				// If the image isn't in the map, it wasn't loaded. Return a 404.
-				http.NotFound(w, r)
-			}
-			return
+		w.Header().Add("Content-Type", mimeType)
+		w.Header().Add("Cache-Control", "max-age=2592000, public")
+		// Serve the image directly from the map using its simple filename key.
+		if data, ok := ImageMap[imageName]; ok {
+			w.Write(data)
+		} else {
+			// If the image isn't in the map, it wasn't loaded. Return a 404.
+			http.NotFound(w, r)
 		}
-		http.Error(w, errServerError, http.StatusInternalServerError)
 	}
 }
 
@@ -1114,13 +1123,9 @@ func handleRobots(mux *http.ServeMux) {
 	}
 	handleRobots := func(w http.ResponseWriter, r *http.Request) {
 		addHeaders(w, r)
-		if validRequest(r) {
-			w.Header().Add("Content-Type", "text/plain; charset=utf-8")
-			w.Header().Add("Cache-Control", "max-age=2592000, public")
-			w.Write(f)
-			return
-		}
-		http.Error(w, errServerError, http.StatusInternalServerError)
+		w.Header().Add("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Add("Cache-Control", "max-age=2592000, public")
+		w.Write(f)
 	}
 	mux.HandleFunc("/robots.txt", handleRobots)
 }

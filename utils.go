@@ -15,6 +15,7 @@ import (
 // calculateSRIHashes reads static assets (CSS, JS), computes their SRI hashes,
 // and populates the global variables. This is called at startup.
 func calculateSRIHashes() error {
+	jsFileMap = make(map[string][]byte)
 	// shorter.css
 	cssBytes, err := os.ReadFile(filepath.Join(config.BaseDir, "css", "shorter.css"))
 	if err != nil {
@@ -23,22 +24,32 @@ func calculateSRIHashes() error {
 	cssHash := sha256.Sum256(cssBytes)
 	cssSRIHash = "sha256-" + base64.StdEncoding.EncodeToString(cssHash[:])
 
-	// admin.js - This is optional, so we don't return an error if it's missing.
-	adminJsBytes, err := os.ReadFile(filepath.Join(config.BaseDir, "js", "admin.js"))
-	if err == nil {
-		adminHash := sha256.Sum256(adminJsBytes)
-		adminJsSRIHash = "sha256-" + base64.StdEncoding.EncodeToString(adminHash[:])
-	} else {
-		slogger.Warn("admin.js not found, skipping SRI hash calculation for it.")
-	}
+	// Read each JS file once, store its content, and calculate the hash from the stored content.
+	jsFilesToLoad := []string{"admin.js", "showText.js"}
+	for _, fileName := range jsFilesToLoad {
+		slogger.Debug("Attempting to load JS file", "file", fileName)
+		filePath := filepath.Join(config.BaseDir, "js", fileName)
+		fileBytes, err := os.ReadFile(filePath)
+		if err != nil {
+			// Use ERROR level to make this highly visible during debugging.
+			slogger.Error("Could not read JS file, handler will not be created.", "file", fileName, "path", filePath, "error", err)
+			continue
+		}
 
-	// showText.js - This is also optional.
-	showTextJsBytes, err := os.ReadFile(filepath.Join(config.BaseDir, "js", "showText.js"))
-	if err == nil {
-		showTextHash := sha256.Sum256(showTextJsBytes)
-		showTextJsSRIHash = "sha256-" + base64.StdEncoding.EncodeToString(showTextHash[:])
-	} else {
-		slogger.Warn("showText.js not found, skipping SRI hash calculation for it.")
+		// Store the file content in the global map.
+		jsFileMap[fileName] = fileBytes
+
+		// Calculate the hash from the in-memory bytes.
+		hash := sha256.Sum256(fileBytes)
+		sriHash := "sha256-" + base64.StdEncoding.EncodeToString(hash[:])
+
+		// Assign the hash to the correct global variable.
+		switch fileName {
+		case "admin.js":
+			adminJsSRIHash = sriHash
+		case "showText.js":
+			showTextJsSRIHash = sriHash
+		}
 	}
 
 	slogger.Info("Successfully calculated SRI hashes for static assets.")
