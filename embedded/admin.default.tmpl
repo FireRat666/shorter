@@ -13,6 +13,19 @@
             <a href="/admin/logout" class="logout-button">Logout</a>
         </div>
         <div class="tos">
+            <h2>Site-Wide Statistics</h2>
+            <div class="stats-container">
+                <div class="stat-box">
+                    <span class="stat-value">{{.TotalLinks}}</span>
+                    <span class="stat-label">Active Links</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-value">{{.TotalClicks}}</span>
+                    <span class="stat-label">Total Clicks</span>
+                </div>
+            </div>
+        </div>
+        <div class="tos">
             <h2>Primary Domain</h2>
             {{if .PrimaryDomain}}
                 <table>

@@ -309,6 +309,18 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Get site-wide statistics.
+	allLinks, err := getAllActiveLinks(r.Context())
+	if err != nil {
+		// Log the error but don't fail the page load. The stats will just be zero.
+		slogger.Error("Failed to retrieve site-wide link statistics", "error", err)
+	}
+
+	var totalClicks int
+	for _, link := range allLinks {
+		totalClicks += link.TimesUsed
+	}
+
 	pageVars := adminPageVars{
 		Subdomains:          displaySubdomains,
 		PrimaryDomainConfig: getSubdomainConfig(config.PrimaryDomain),
@@ -316,6 +328,8 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 		PrimaryDomain:       config.PrimaryDomain,
 		CssSRIHash:          cssSRIHash,
 		AdminJsSRIHash:      adminJsSRIHash,
+		TotalLinks:          len(allLinks),
+		TotalClicks:         totalClicks,
 	}
 
 	if err := adminTmpl.Execute(w, pageVars); err != nil {

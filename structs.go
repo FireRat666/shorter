@@ -130,6 +130,8 @@ type adminPageVars struct {
 	PrimaryDomain       string
 	CssSRIHash          string
 	AdminJsSRIHash      string
+	TotalLinks          int
+	TotalClicks         int
 }
 
 // adminEditPageVars holds the data for the subdomain edit page.

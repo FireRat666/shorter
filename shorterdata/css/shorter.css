@@ -316,3 +316,31 @@ select.is-overridden {
     font-size: 1.2em;
     text-align: center;
 }
+
+/* Admin Panel Statistics */
+.stats-container {
+    display: flex;
+    gap: 1em;
+    margin-top: 1em;
+}
+
+.stat-box {
+    background-color: #3a3a3a;
+    padding: 1.5em;
+    border-radius: 4px;
+    text-align: center;
+    flex-grow: 1;
+}
+
+.stat-value {
+    display: block;
+    font-size: 2em;
+    font-weight: bold;
+}
+
+.stat-label {
+    display: block;
+    font-size: 0.9em;
+    color: #aaa;
+    margin-top: 0.5em;
+}

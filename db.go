@@ -235,6 +235,41 @@ func getLinksForDomain(ctx context.Context, domain string) ([]Link, error) {
 	return links, rows.Err()
 }
 
+// getAllActiveLinks retrieves all active links from the database.
+func getAllActiveLinks(ctx context.Context) ([]Link, error) {
+	query := `
+		SELECT key, domain, link_type, data, is_compressed, times_allowed, times_used, expires_at, created_at
+		FROM links
+		WHERE expires_at > NOW()
+		ORDER BY created_at DESC;`
+
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query all active links: %w", err)
+	}
+	defer rows.Close()
+
+	var links []Link
+	for rows.Next() {
+		var link Link
+		if err := rows.Scan(
+			&link.Key,
+			&link.Domain,
+			&link.LinkType,
+			&link.Data,
+			&link.IsCompressed,
+			&link.TimesAllowed,
+			&link.TimesUsed,
+			&link.ExpiresAt,
+			&link.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan link row: %w", err)
+		}
+		links = append(links, link)
+	}
+	return links, rows.Err()
+}
+
 // deleteLink removes a dynamic link from the database by its key and domain.
 func deleteLink(ctx context.Context, key, domain string) error {
 	query := `DELETE FROM links WHERE key = $1 AND domain = $2;`
