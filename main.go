@@ -27,6 +27,7 @@ func main() {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
 	slogger.Info("Logger initialized successfully")
+	slogger.Info("Successfully loaded configuration", "file", loadedConfigPath)
 
 	// Log the loaded configuration, redacting sensitive fields.
 	loggedConfig := config
@@ -83,6 +84,7 @@ func main() {
 	// 6. Set up the HTTP request multiplexer (router).
 	mux := http.NewServeMux()
 	handleRoot(mux)
+	mux.HandleFunc("/login", handleLoginPage)
 	handleAdminRoutes(mux)
 	handleRobots(mux)
 	handleImages(mux)

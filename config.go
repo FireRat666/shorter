@@ -11,8 +11,7 @@ import (
 
 // loadConfig reads the configuration from config.yaml and populates the config struct.
 // It uses sync.Once to ensure this only happens once.
-// It prioritizes a local 'shorterdata/Config' file over 'shorterdata/config.yaml'.
-func loadConfig() error {
+func loadConfig() (err error) {
 	configOnce.Do(func() {
 		localConfigPath := filepath.Join("shorterdata", "Config")
 		defaultConfigPath := filepath.Join("shorterdata", "config.yaml")
@@ -26,6 +25,9 @@ func loadConfig() error {
 				configErr = fmt.Errorf("failed to read both local config (%s) and default config (%s): %w", localConfigPath, defaultConfigPath, err)
 				return
 			}
+			loadedConfigPath = defaultConfigPath
+		} else {
+			loadedConfigPath = localConfigPath
 		}
 
 		// Use UnmarshalStrict to error out on unknown fields in the config file.

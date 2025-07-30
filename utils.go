@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
-	"math/rand"
+	mrand "math/rand"
 	"net"
 	"os"
 	"path/filepath"
@@ -70,7 +71,7 @@ func initResolver() {
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 			// Randomly select a DNS server from the list for each dial to improve resilience.
-			server := config.MalwareProtection.CustomDNSServers[rand.Intn(len(config.MalwareProtection.CustomDNSServers))]
+			server := config.MalwareProtection.CustomDNSServers[mrand.Intn(len(config.MalwareProtection.CustomDNSServers))]
 			return dialer.DialContext(ctx, "udp", server)
 		},
 	}
@@ -104,4 +105,15 @@ func findDataDir(baseDirName string) (string, error) {
 	}
 
 	return "", fmt.Errorf("could not find data directory '%s' relative to executable or current working directory", baseDirName)
+}
+
+// generateSessionToken creates a cryptographically secure, random string to be used as a session token.
+func generateSessionToken() (string, error) {
+	// 32 bytes of entropy is a good standard for session tokens.
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	// Encode to a URL-safe base64 string, which is cookie-friendly.
+	return base64.URLEncoding.EncodeToString(b), nil
 }

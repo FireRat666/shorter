@@ -22,34 +22,30 @@ import (
 
 func handleRoot(mux *http.ServeMux) {
 	handler := func(w http.ResponseWriter, r *http.Request) {
+		// This is the main entry point for all non-specific requests.
+		// We first add security headers and validate the request host.
 		addHeaders(w, r)
-		if validRequest(r) {
-			handleRequests(w, r)
-		} else {
-			http.Error(w, errServerError, http.StatusInternalServerError)
+		if !validRequest(r) {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Error: invalid request host.")
+			return
+		}
+
+		// Route the request based on its method.
+		switch r.Method {
+		case http.MethodGet:
+			handleGET(w, r)
+		case http.MethodPost:
+			handlePOST(w, r)
+		default:
+			// For any other method, return a 405 Method Not Allowed.
+			logErrors(w, r, "Method Not Allowed", http.StatusMethodNotAllowed, "Unsupported method: "+r.Method)
 		}
 	}
 	mux.HandleFunc("/", handler)
 }
 
-// handleRequests will handle all web requests and direct the right action to the right linkLen
-func handleRequests(w http.ResponseWriter, r *http.Request) {
-	if r == nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "invalid request")
-		return
-	}
-
-	// browsers should send a path that begins with a /
-	if r.URL.Path[0] != '/' {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "")
-		return
-	}
-
-	if r.Method == http.MethodGet {
-		handleGET(w, r)
-		return
-	}
-
+// handlePOST handles all POST requests for creating new links.
+func handlePOST(w http.ResponseWriter, r *http.Request) {
 	// Get the specific configuration for the requested host.
 	subdomainCfg := getSubdomainConfig(r.Host)
 
@@ -58,174 +54,159 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 		scheme = "https"
 	}
 
-	// If the user tries to submit data via POST
-	if r.Method == http.MethodPost {
-		err := r.ParseMultipartForm(config.MaxFileSize)
-		if err != nil {
-			logErrors(w, r, errServerError, http.StatusBadRequest, "Error parsing form: "+url.QueryEscape(err.Error()))
-			return
-		}
-
-		// Determine link expiration and key length based on the selected form option
-		length := r.Form.Get("len")
-		var linkTimeout time.Duration
-		var keyLength int
-		switch length {
-		case "1":
-			linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen1Timeout)
-			keyLength = config.LinkLen1
-		case "2":
-			linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen2Timeout)
-			keyLength = config.LinkLen2
-		case "3":
-			linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen3Timeout)
-			keyLength = config.LinkLen3
-		case "custom":
-			linkTimeout, err = time.ParseDuration(subdomainCfg.CustomTimeout)
-			keyLength = 0 // Custom key, length is variable
-		default:
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Error: Invalid len argument.")
-			return
-		}
-
-		if err != nil {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Error parsing link timeout duration: "+err.Error())
-			return
-		}
-
-		// Check if request is a custom key request and report error if it is invalid
-		customKey := ""
-		if length == "custom" {
-			customKey = r.Form.Get("custom")
-			if !validate(customKey) || len(customKey) < 4 || len(customKey) > config.MaxKeyLen {
-				logErrors(w, r, errInvalidCustomKey, http.StatusBadRequest, "Invalid custom key.")
-				return
-			}
-
-			// Check if custom key is already in use in the database
-			existingLink, err := getLinkFromDB(r.Context(), customKey, r.Host)
-			if err != nil {
-				logErrors(w, r, errServerError, http.StatusInternalServerError, "Error checking for existing key: "+err.Error())
-				return
-			}
-			if existingLink != nil {
-				logErrors(w, r, errInvalidKeyUsed, http.StatusConflict, "Custom key is already in use.")
-				return
-			}
-		}
-
-		// Get how many times the link can be used before becoming invalid, 0 represents no limit
-		xTimes, err := strconv.Atoi(r.Form.Get("xTimes"))
-		if err != nil || xTimes < 0 {
-			xTimes = 0 // 0 means unlimited
-		} else if xTimes > subdomainCfg.LinkAccessMaxNr {
-			xTimes = subdomainCfg.LinkAccessMaxNr
-		}
-
-		// Handle different request types
-		requestType := r.Form.Get("requestType")
-		link := &Link{
-			Key:          customKey,
-			Domain:       r.Host,
-			TimesAllowed: xTimes,
-			ExpiresAt:    time.Now().Add(linkTimeout),
-		}
-
-		switch requestType {
-		case "url":
-			formURL := r.Form.Get("url")
-			if formURL == "" {
-				logErrors(w, r, "URL cannot be empty.", http.StatusBadRequest, "Empty URL submitted")
-				return
-			}
-
-			// Prepend https:// if no scheme is present.
-			if !strings.HasPrefix(formURL, "http://") && !strings.HasPrefix(formURL, "https://") {
-				formURL = "https://" + formURL
-			}
-
-			// Validate the final URL structure.
-			if _, err := url.ParseRequestURI(formURL); err != nil {
-				logErrors(w, r, "The provided URL appears to be invalid.", http.StatusBadRequest, "Invalid URL after normalization")
-				return
-			}
-
-			// Check the URL against the blocklist.
-			isBlocked, err := isURLBlockedByDNSBL(formURL)
-			if err != nil || isBlocked {
-				if err != nil {
-					slogger.Error("DNSBL check failed, blocking submission", "url", formURL, "error", err)
-				}
-				logErrors(w, r, "The provided URL is not allowed.", http.StatusBadRequest, "Blocked malicious URL submission")
-				return
-			}
-			link.LinkType = "url"
-			link.Data = []byte(formURL)
-			link.IsCompressed = false
-			createAndRespond(w, r, link, keyLength, scheme)
-		case "text":
-			if lowRAM() {
-				logErrors(w, r, errServerError, http.StatusInternalServerError, errLowRAM)
-				return
-			}
-			textBlob := r.Form.Get("text")
-			textBytes := []byte(textBlob)
-			link.LinkType = "text"
-			link.Data = textBytes
-			link.IsCompressed = false
-
-			if len(textBytes) > config.MinSizeToGzip {
-				compressed, err := compress(textBytes)
-				if err == nil && len(textBytes) > len(compressed) {
-					link.Data = compressed
-					link.IsCompressed = true
-				}
-			}
-
-			createAndRespond(w, r, link, keyLength, scheme)
-		default:
-			logErrors(w, r, errNotImplemented, http.StatusNotImplemented, "Error: Invalid requestType argument.")
-		}
+	err := r.ParseMultipartForm(config.MaxFileSize)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusBadRequest, "Error parsing form: "+url.QueryEscape(err.Error()))
 		return
 	}
 
-	// If the request is not handled previously redirect to index, note that Host has been validated earlier
-	logOK(r, http.StatusSeeOther)
-	http.Redirect(w, r, scheme+"://"+r.Host, http.StatusSeeOther)
-}
+	// Determine link expiration and key length based on the selected form option
+	length := r.Form.Get("len")
+	var linkTimeout time.Duration
+	var keyLength int
+	switch length {
+	case "1":
+		linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen1Timeout)
+		keyLength = config.LinkLen1
+	case "2":
+		linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen2Timeout)
+		keyLength = config.LinkLen2
+	case "3":
+		linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen3Timeout)
+		keyLength = config.LinkLen3
+	case "custom":
+		linkTimeout, err = time.ParseDuration(subdomainCfg.CustomTimeout)
+		keyLength = 0 // Custom key, length is variable
+	default:
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Error: Invalid len argument.")
+		return
+	}
 
-// sendUnauthorized sends a 401 Unauthorized response, prompting the browser for credentials.
-func sendUnauthorized(w http.ResponseWriter, r *http.Request) {
-	addHeaders(w, r)
-	w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
-	// Add cache control headers to prevent the browser from caching the 401 response.
-	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-	w.Header().Set("Pragma", "no-cache") // For older HTTP/1.0 clients
-	w.Header().Set("Expires", "0")       // For older HTTP/1.0 clients
-	http.Error(w, "Unauthorized", http.StatusUnauthorized)
-}
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Error parsing link timeout duration: "+err.Error())
+		return
+	}
 
-// basicAuth is a middleware that protects handlers with Basic Authentication.
-func basicAuth(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Check if admin credentials are configured. If not, disable the endpoint.
-		if config.Admin.User == "" || config.Admin.PassHash == "" {
-			http.NotFound(w, r)
+	// Check if request is a custom key request and report error if it is invalid
+	customKey := ""
+	if length == "custom" {
+		customKey = r.Form.Get("custom")
+		if !validate(customKey) || len(customKey) < 4 || len(customKey) > config.MaxKeyLen {
+			logErrors(w, r, errInvalidCustomKey, http.StatusBadRequest, "Invalid custom key.")
 			return
 		}
 
-		// Check credentials. If they are missing, the user is wrong, or the password hash
-		// doesn't match, send an unauthorized response.
-		user, pass, ok := r.BasicAuth()
-		if !ok || user != config.Admin.User || bcrypt.CompareHashAndPassword([]byte(config.Admin.PassHash), []byte(pass)) != nil {
-			if slogger != nil {
-				slogger.Debug("Basic auth failed, sending 401.", "path", r.URL.Path, "user", user, "auth_ok", ok)
+		// Check if custom key is already in use in the database
+		existingLink, err := getLinkFromDB(r.Context(), customKey, r.Host)
+		if err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Error checking for existing key: "+err.Error())
+			return
+		}
+		if existingLink != nil {
+			logErrors(w, r, errInvalidKeyUsed, http.StatusConflict, "Custom key is already in use.")
+			return
+		}
+	}
+
+	// Get how many times the link can be used before becoming invalid, 0 represents no limit
+	xTimes, err := strconv.Atoi(r.Form.Get("xTimes"))
+	if err != nil || xTimes < 0 {
+		xTimes = 0 // 0 means unlimited
+	} else if xTimes > subdomainCfg.LinkAccessMaxNr {
+		xTimes = subdomainCfg.LinkAccessMaxNr
+	}
+
+	// Handle different request types
+	requestType := r.Form.Get("requestType")
+	link := &Link{
+		Key:          customKey,
+		Domain:       r.Host,
+		TimesAllowed: xTimes,
+		ExpiresAt:    time.Now().Add(linkTimeout),
+	}
+
+	switch requestType {
+	case "url":
+		formURL := r.Form.Get("url")
+		if formURL == "" {
+			logErrors(w, r, "URL cannot be empty.", http.StatusBadRequest, "Empty URL submitted")
+			return
+		}
+
+		// Prepend https:// if no scheme is present.
+		if !strings.HasPrefix(formURL, "http://") && !strings.HasPrefix(formURL, "https://") {
+			formURL = "https://" + formURL
+		}
+
+		// Validate the final URL structure.
+		if _, err := url.ParseRequestURI(formURL); err != nil {
+			logErrors(w, r, "The provided URL appears to be invalid.", http.StatusBadRequest, "Invalid URL after normalization")
+			return
+		}
+
+		// Check the URL against the blocklist.
+		isBlocked, err := isURLBlockedByDNSBL(formURL)
+		if err != nil || isBlocked {
+			if err != nil {
+				slogger.Error("DNSBL check failed, blocking submission", "url", formURL, "error", err)
 			}
-			sendUnauthorized(w, r)
+			logErrors(w, r, "The provided URL is not allowed.", http.StatusBadRequest, "Blocked malicious URL submission")
+			return
+		}
+		link.LinkType = "url"
+		link.Data = []byte(formURL)
+		link.IsCompressed = false
+		createAndRespond(w, r, link, keyLength, scheme)
+	case "text":
+		if lowRAM() {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, errLowRAM)
+			return
+		}
+		textBlob := r.Form.Get("text")
+		textBytes := []byte(textBlob)
+		link.LinkType = "text"
+		link.Data = textBytes
+		link.IsCompressed = false
+
+		if len(textBytes) > config.MinSizeToGzip {
+			compressed, err := compress(textBytes)
+			if err == nil && len(textBytes) > len(compressed) {
+				link.Data = compressed
+				link.IsCompressed = true
+			}
+		}
+
+		createAndRespond(w, r, link, keyLength, scheme)
+	default:
+		logErrors(w, r, errNotImplemented, http.StatusNotImplemented, "Error: Invalid requestType argument.")
+	}
+}
+
+// sessionAuth is a middleware that protects handlers by requiring a valid session cookie.
+func sessionAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie("session_token")
+		if err != nil {
+			// If the cookie is not present, redirect to the login page.
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
 
-		// If authentication is successful, call the next handler.
+		// Validate the session token from the cookie.
+		session, err := getSessionByToken(r.Context(), cookie.Value)
+		if err != nil {
+			// A database error occurred.
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to validate session: "+err.Error())
+			return
+		}
+
+		if session == nil {
+			// The session is invalid or expired. Redirect to the login page.
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+
+		// If the session is valid, call the next handler.
 		next.ServeHTTP(w, r)
 	}
 }
@@ -237,13 +218,12 @@ func handleAdminRoutes(mux *http.ServeMux) {
 	// Create a new router for admin-only endpoints.
 	adminRouter := http.NewServeMux()
 
-	// Register the admin handlers, each wrapped in basicAuth.
+	// Register the admin handlers, each wrapped in our new sessionAuth middleware.
 	// The paths are relative to the "/admin" prefix that will be stripped.
-	adminRouter.HandleFunc("/", basicAuth(handleAdmin)) // Matches /admin
-	adminRouter.HandleFunc("/edit", basicAuth(handleAdminEditPage))
-	adminRouter.HandleFunc("/edit_static_link", basicAuth(handleAdminEditStaticLinkPage))
-	// The logout action itself doesn't need auth; its only job is to send a 401.
-	adminRouter.HandleFunc("/logout", handleAdminLogout)
+	adminRouter.HandleFunc("/", sessionAuth(handleAdmin)) // Matches /admin
+	adminRouter.HandleFunc("/edit", sessionAuth(handleAdminEditPage))
+	adminRouter.HandleFunc("/edit_static_link", sessionAuth(handleAdminEditStaticLinkPage))
+	adminRouter.HandleFunc("/logout", sessionAuth(handleAdminLogout)) // Logout must be protected
 
 	// Create a handler that first strips the "/admin" prefix, then passes to the adminRouter.
 	// This is the standard way to handle sub-routing.
@@ -253,6 +233,33 @@ func handleAdminRoutes(mux *http.ServeMux) {
 	finalAdminHandler := web.CspAdminMiddleware(adminHandler)
 
 	mux.Handle("/admin/", finalAdminHandler)
+}
+
+// handleAdminLogout deletes the user's session from the database and clears the cookie.
+func handleAdminLogout(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_token")
+	if err != nil {
+		// If there's no cookie, there's nothing to do.
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	// Delete the session from the database.
+	if err := deleteSessionByToken(r.Context(), cookie.Value); err != nil {
+		// Log the error, but proceed with logout anyway.
+		slogger.Error("Failed to delete session from database during logout", "error", err)
+	}
+
+	// Clear the cookie by setting its expiration to a time in the past.
+	http.SetCookie(w, &http.Cookie{
+		Name:    "session_token",
+		Value:   "",
+		Expires: time.Unix(0, 0),
+		Path:    "/",
+	})
+
+	// Redirect to the homepage.
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // handleAdmin serves the admin dashboard page.
@@ -315,13 +322,6 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin template: "+err.Error())
 	}
 	logOK(r, http.StatusOK)
-}
-
-// handleAdminLogout forces a logout by sending a 401 response.
-// The handler is not wrapped in basicAuth. Its only purpose is to send the 401
-// signal to the browser to clear its cached credentials.
-func handleAdminLogout(w http.ResponseWriter, r *http.Request) {
-	sendUnauthorized(w, r)
 }
 
 func handleAdminCreateSubdomain(w http.ResponseWriter, r *http.Request) {
@@ -704,6 +704,80 @@ func parseSubdomainForm(r *http.Request) (SubdomainConfig, error) {
 		}
 	}
 	return newConfig, nil
+}
+
+// handleLoginPage serves the login page for GET requests and handles login form submissions for POST requests.
+func handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	// If the user is already logged in, redirect them to the admin dashboard.
+	cookie, err := r.Cookie("session_token")
+	if err == nil {
+		session, _ := getSessionByToken(r.Context(), cookie.Value)
+		if session != nil {
+			http.Redirect(w, r, "/admin/", http.StatusSeeOther)
+			return
+		}
+	}
+
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Login form parse error: "+err.Error())
+			return
+		}
+
+		username := r.FormValue("username")
+		password := r.FormValue("password")
+
+		// Validate credentials against the configuration.
+		if username != config.Admin.User || bcrypt.CompareHashAndPassword([]byte(config.Admin.PassHash), []byte(password)) != nil {
+			// Authentication failed. Redirect back to login page with an error message.
+			slogger.Warn("Failed login attempt", "user", username)
+			http.Redirect(w, r, "/login?error=Invalid+username+or+password", http.StatusSeeOther)
+			return
+		}
+
+		// Authentication successful.
+		// In the next step, we will create a session here.
+		slogger.Info("Admin user successfully authenticated", "user", username)
+
+		// Create a new session for the user.
+		session, err := createSession(r.Context(), username)
+		if err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to create session: "+err.Error())
+			return
+		}
+
+		// Set the session token in a secure cookie.
+		http.SetCookie(w, &http.Cookie{
+			Name:     "session_token",
+			Value:    session.Token,
+			Expires:  session.ExpiresAt,
+			HttpOnly: true,
+			Secure:   r.TLS != nil, // Only send over HTTPS
+			SameSite: http.SameSiteLaxMode,
+			Path:     "/",
+		})
+
+		// Redirect to the admin dashboard.
+		http.Redirect(w, r, "/admin/", http.StatusSeeOther)
+	}
+
+	// Handle GET request to display the login page.
+	addHeaders(w, r)
+	loginTmpl, ok := templateMap["login"]
+	if !ok {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load login template")
+		return
+	}
+
+	pageVars := loginPageVars{
+		CssSRIHash: cssSRIHash,
+		Error:      r.URL.Query().Get("error"),
+	}
+
+	if err := loginTmpl.Execute(w, pageVars); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute login template: "+err.Error())
+	}
+	logOK(r, http.StatusOK)
 }
 
 // handleGET will handle GET requests and redirect to the saved link for a key, return a saved textblob or return a file

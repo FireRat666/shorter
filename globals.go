@@ -19,6 +19,8 @@ var (
 	configOnce sync.Once
 	// configErr holds any error that occurred during configuration loading.
 	configErr error
+	// loadedConfigPath holds the path of the configuration file that was loaded.
+	loadedConfigPath string
 
 	// db is the global database connection pool, initialized in db.go.
 	db *sql.DB

@@ -62,6 +62,17 @@ func setupDB(databaseURL string) error {
 		return fmt.Errorf("failed to create subdomain_configs schema: %w", err)
 	}
 
+	// Create the sessions table for session-based authentication.
+	schemaSessions := `
+	CREATE TABLE IF NOT EXISTS sessions (
+		token TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		expires_at TIMESTAMPTZ NOT NULL
+	);`
+	if _, err = db.ExecContext(ctx, schemaSessions); err != nil {
+		return fmt.Errorf("failed to create sessions schema: %w", err)
+	}
+
 	return nil
 }
 
@@ -278,4 +289,53 @@ func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 
 	// Commit the transaction to save the changes.
 	return link, tx.Commit()
+}
+
+// --- Session Management ---
+
+// createSession generates a new session token, stores it in the database, and returns the session.
+func createSession(ctx context.Context, userID string) (*Session, error) {
+	token, err := generateSessionToken()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate session token: %w", err)
+	}
+
+	// Sessions are valid for 24 hours.
+	expiresAt := time.Now().Add(24 * time.Hour)
+
+	session := &Session{
+		Token:     token,
+		UserID:    userID,
+		ExpiresAt: expiresAt,
+	}
+
+	query := `INSERT INTO sessions (token, user_id, expires_at) VALUES ($1, $2, $3);`
+	_, err = db.ExecContext(ctx, query, session.Token, session.UserID, session.ExpiresAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert session into database: %w", err)
+	}
+
+	return session, nil
+}
+
+// getSessionByToken retrieves a session from the database if it exists and has not expired.
+func getSessionByToken(ctx context.Context, token string) (*Session, error) {
+	session := &Session{}
+	query := `SELECT token, user_id, expires_at FROM sessions WHERE token = $1 AND expires_at > NOW();`
+
+	err := db.QueryRowContext(ctx, query, token).Scan(&session.Token, &session.UserID, &session.ExpiresAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil // No session found, not a fatal error.
+		}
+		return nil, fmt.Errorf("failed to get session from database: %w", err)
+	}
+	return session, nil
+}
+
+// deleteSessionByToken removes a session from the database, effectively logging the user out.
+func deleteSessionByToken(ctx context.Context, token string) error {
+	query := `DELETE FROM sessions WHERE token = $1;`
+	_, err := db.ExecContext(ctx, query, token)
+	return err
 }

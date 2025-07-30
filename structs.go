@@ -70,6 +70,13 @@ type Link struct {
 	CreatedAt    time.Time
 }
 
+// Session represents a user's login session in the database.
+type Session struct {
+	Token     string
+	UserID    string
+	ExpiresAt time.Time
+}
+
 type showLinkVars struct {
 	Domain        string
 	Data          string
@@ -104,6 +111,12 @@ type errorPageVars struct {
 	StatusCode int
 	Message    string
 	CssSRIHash string
+}
+
+// loginPageVars holds data for the login page template.
+type loginPageVars struct {
+	CssSRIHash string
+	Error      string
 }
 
 // adminPageVars holds the data for the main admin dashboard.

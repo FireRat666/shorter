@@ -28,6 +28,9 @@ var defaultAdminEditHTML string
 //go:embed embedded/admin_edit_static_link.default.tmpl
 var defaultAdminEditStaticLinkHTML string
 
+//go:embed embedded/login.default.tmpl
+var defaultLoginHTML string
+
 // initTemplates initializes the template map, loading custom templates from disk
 // and falling back to embedded templates if custom ones are not found.
 func initTemplates() error {
@@ -40,6 +43,7 @@ func initTemplates() error {
 	loadTemplate("admin_edit", defaultAdminEditHTML)
 	loadTemplate("admin_edit_static_link", defaultAdminEditStaticLinkHTML)
 	loadTemplate("error", defaultErrorHTML)
+	loadTemplate("login", defaultLoginHTML)
 
 	slogger.Info("Successfully loaded HTML templates", "count", len(templateMap))
 	return nil
