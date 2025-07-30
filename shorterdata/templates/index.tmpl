@@ -52,6 +52,15 @@
                <span>Max Uses (0 for unlimited, max: {{.LinkAccessMaxNr}}):</span>
                <input type="number" name="xTimes" class="inputbox" value="0" min="0" max="{{.LinkAccessMaxNr}}">
             </div>
+			
+            <div class="radio-box">
+                <input type="checkbox" id="showPassword">
+                <label for="showPassword">Protect with a password?</label>
+                <div id="passwordDiv">
+                    <input type="password" name="password" class="inputbox" placeholder="Enter a password">
+                </div>
+            </div>
+
             <input type="submit">
          </form>
       </div>

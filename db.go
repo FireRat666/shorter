@@ -40,6 +40,7 @@ func setupDB(databaseURL string) error {
 		link_type TEXT NOT NULL,
 		data BYTEA NOT NULL,
 		is_compressed BOOLEAN NOT NULL,
+		password_hash TEXT,
 		times_allowed INT NOT NULL,
 		times_used INT DEFAULT 0 NOT NULL,
 		expires_at TIMESTAMPTZ NOT NULL,
@@ -85,6 +86,31 @@ func setupDB(databaseURL string) error {
 	CREATE INDEX IF NOT EXISTS idx_clicks_clicked_at ON clicks (clicked_at);`
 	if _, err = db.ExecContext(ctx, schemaClicks); err != nil {
 		return fmt.Errorf("failed to create clicks schema: %w", err)
+	}
+
+	// --- Schema Migrations ---
+	// This section handles simple, additive schema changes to avoid breaking existing deployments.
+
+	// Migration 1: Add password_hash column to links table if it doesn't exist.
+	var columnExists bool
+	checkColumnQuery := `
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_name = 'links' AND column_name = 'password_hash'
+		);`
+	err = db.QueryRowContext(ctx, checkColumnQuery).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check for password_hash column existence: %w", err)
+	}
+
+	if !columnExists {
+		slogger.Info("Schema migration: adding 'password_hash' column to 'links' table...")
+		alterQuery := `ALTER TABLE links ADD COLUMN password_hash TEXT;`
+		if _, err = db.ExecContext(ctx, alterQuery); err != nil {
+			return fmt.Errorf("failed to apply schema migration for password_hash column: %w", err)
+		}
+		slogger.Info("Schema migration applied successfully.")
 	}
 
 	return nil
@@ -370,13 +396,14 @@ func createLinkInDB(ctx context.Context, link Link) error {
 	// If the existing link is still active, the WHERE condition is false, the UPDATE is
 	// skipped, and zero rows are affected.
 	query := `
-		INSERT INTO links (key, domain, link_type, data, is_compressed, times_allowed, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO links (key, domain, link_type, data, is_compressed, password_hash, times_allowed, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (key, domain) DO UPDATE
 		SET
 			link_type = EXCLUDED.link_type,
 			data = EXCLUDED.data,
 			is_compressed = EXCLUDED.is_compressed,
+			password_hash = EXCLUDED.password_hash,
 			times_allowed = EXCLUDED.times_allowed,
 			times_used = 0, -- Reset usage count for the new link
 			expires_at = EXCLUDED.expires_at,
@@ -384,7 +411,7 @@ func createLinkInDB(ctx context.Context, link Link) error {
 		WHERE
 			links.expires_at <= NOW() OR (links.times_allowed > 0 AND links.times_used >= links.times_allowed);`
 
-	result, err := db.ExecContext(ctx, query, link.Key, link.Domain, link.LinkType, link.Data, link.IsCompressed, link.TimesAllowed, link.ExpiresAt)
+	result, err := db.ExecContext(ctx, query, link.Key, link.Domain, link.LinkType, link.Data, link.IsCompressed, link.PasswordHash, link.TimesAllowed, link.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("failed to insert or update link in database: %w", err)
 	}
@@ -421,7 +448,7 @@ func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 	// We will check for expiration in the application logic so we can perform
 	// a "just-in-time" deletion of the expired link.
 	querySelect := `
-		SELECT key, domain, link_type, data, is_compressed, times_allowed, times_used, expires_at, created_at
+		SELECT key, domain, link_type, data, is_compressed, password_hash, times_allowed, times_used, expires_at, created_at
 		FROM links
 		WHERE key = $1 AND domain = $2
 		FOR UPDATE;`
@@ -432,6 +459,7 @@ func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 		&link.LinkType,
 		&link.Data,
 		&link.IsCompressed,
+		&link.PasswordHash,
 		&link.TimesAllowed,
 		&link.TimesUsed,
 		&link.ExpiresAt,
@@ -460,21 +488,27 @@ func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 		return nil, nil // Return nil as if the link was not found.
 	}
 
-	// Increment the usage count for the retrieved link.
-	queryUpdate := `UPDATE links SET times_used = times_used + 1 WHERE key = $1 AND domain = $2;`
-	if _, err = tx.ExecContext(ctx, queryUpdate, key, domain); err != nil {
-		return nil, fmt.Errorf("failed to update link usage: %w", err)
-	}
-
-	// Record the click event for analytics.
-	queryInsertClick := `INSERT INTO clicks (link_key, link_domain) VALUES ($1, $2);`
-	if _, err = tx.ExecContext(ctx, queryInsertClick, key, domain); err != nil {
-		// This is not a fatal error for the user's redirect, so we just log it.
-		slogger.Error("Failed to record click for analytics", "key", key, "domain", domain, "error", err)
-	}
-
 	// Commit the transaction to save the changes.
 	return link, tx.Commit()
+}
+
+// incrementLinkUsage increments a link's usage count and records the click for analytics.
+func incrementLinkUsage(ctx context.Context, key, domain string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for usage increment: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Increment the usage count.
+	if _, err := tx.ExecContext(ctx, `UPDATE links SET times_used = times_used + 1 WHERE key = $1 AND domain = $2;`, key, domain); err != nil {
+		return fmt.Errorf("failed to update link usage: %w", err)
+	}
+	// Record the click event.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO clicks (link_key, link_domain) VALUES ($1, $2);`, key, domain); err != nil {
+		return fmt.Errorf("failed to record click for analytics: %w", err)
+	}
+	return tx.Commit()
 }
 
 // --- Session Management ---

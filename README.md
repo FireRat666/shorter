@@ -13,6 +13,7 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
 *   **Usage Limits**: Set a maximum number of times a link can be accessed before it becomes invalid.
 *   **Link Inspection**: Safely inspect the destination of a short link by appending a `~` to the key.
 *   **Quick Add**: Create short links on the fly with a simple GET request.
+*   **Password-Protected Links**: Secure links with a password, requiring visitors to enter it before being redirected.
 *   **Secure Admin Panel**: A modern, session-based admin interface for managing the service.
     *   **Subdomain Management**: Create, delete, and configure settings for multiple domains from a single interface.
     *   **Per-Domain Configuration**: Override default settings for link timeouts, display values, and usage limits on a per-subdomain basis.
@@ -128,7 +129,6 @@ Render will automatically set the `PORT` environment variable, which the applica
 With the configuration and environment variables set, you can trigger your first deployment. The application will start, connect to the database, and be available at your Render URL.
 
 ## Future Ideas
-*   **Password-Protected Links**: Add an option to require a password before a user can be redirected to the destination URL.
 *   **QR Code Generation**: Automatically generate a downloadable QR code for each created short link.
 *   **Public API**: Create a RESTful API for programmatic link creation and management, protected by API keys.
 *   **Abuse Reporting**: Add a form, protected by a captcha, for users to report links that violate the Terms of Service.

@@ -34,7 +34,13 @@ func handleRoot(mux *http.ServeMux) {
 		case http.MethodGet, http.MethodHead:
 			handleGET(w, r)
 		case http.MethodPost:
-			handlePOST(w, r)
+			// If the POST is to the root path, it's a new link creation.
+			if r.URL.Path == "/" {
+				handlePOST(w, r)
+			} else {
+				// Otherwise, it's likely a password submission for an existing link.
+				handleGET(w, r)
+			}
 		default:
 			// For any other method, return a 405 Method Not Allowed.
 			logErrors(w, r, "Method Not Allowed", http.StatusMethodNotAllowed, "Unsupported method: "+r.Method)
@@ -122,6 +128,18 @@ func handlePOST(w http.ResponseWriter, r *http.Request) {
 		Domain:       r.Host,
 		TimesAllowed: xTimes,
 		ExpiresAt:    time.Now().Add(linkTimeout),
+	}
+
+	// Check for and hash the password if provided.
+	password := r.Form.Get("password")
+	if password != "" {
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to hash password: "+err.Error())
+			return
+		}
+		link.PasswordHash.String = string(hashedPassword)
+		link.PasswordHash.Valid = true
 	}
 
 	switch requestType {
@@ -991,6 +1009,43 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 	// Add security headers to all successful link/text/file views.
 	addHeaders(w, r)
 
+	// If the link is password protected, handle the verification flow.
+	if lnk.PasswordHash.Valid {
+		// This block handles both showing the password form (GET) and verifying the password (POST).
+		if r.Method == http.MethodPost {
+			// User is submitting the password.
+			if err := r.ParseForm(); err != nil {
+				logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Password prompt form parse error: "+err.Error())
+				return
+			}
+			password := r.FormValue("password")
+			// Compare the submitted password with the stored hash.
+			if bcrypt.CompareHashAndPassword([]byte(lnk.PasswordHash.String), []byte(password)) != nil {
+				// Password does not match. Re-render the prompt with an error.
+				renderPasswordPrompt(w, r, key, "Invalid password.")
+				return
+			}
+			// Password is correct. The request can now proceed to the normal link handling below.
+		} else {
+			// This is a GET request. Show the password prompt page.
+			renderPasswordPrompt(w, r, key, "")
+			return
+		}
+	}
+
+	// --- From this point on, the user has either provided a correct password or the link was not protected. ---
+
+	// Increment the link's usage count now that access has been granted.
+	err = incrementLinkUsage(r.Context(), key, r.Host)
+	if err != nil {
+		// This is not a fatal error for the user's redirect, so we just log it.
+		slogger.Error("Failed to increment link usage", "key", key, "domain", r.Host, "error", err)
+	}
+
+	// The link data in `lnk` is still valid from the initial retrieval.
+	// We just need to manually adjust the `TimesUsed` for the template display.
+	lnk.TimesUsed++
+
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
@@ -1069,6 +1124,26 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 	default:
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "invalid LinkType "+url.QueryEscape(lnk.LinkType))
 		return
+	}
+}
+
+// renderPasswordPrompt is a helper to render the password prompt page.
+func renderPasswordPrompt(w http.ResponseWriter, r *http.Request, key, errorMsg string) {
+	passwordTmpl, ok := templateMap["password_prompt"]
+	if !ok {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load password_prompt template")
+		return
+	}
+
+	pageVars := passwordPromptPageVars{
+		Key:        key,
+		Error:      errorMsg,
+		CssSRIHash: cssSRIHash,
+	}
+
+	w.WriteHeader(http.StatusUnauthorized) // Signal that authorization is required.
+	if err := passwordTmpl.Execute(w, pageVars); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute password_prompt template: "+err.Error())
 	}
 }
 

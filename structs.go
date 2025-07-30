@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"time"
 )
 
@@ -67,6 +68,7 @@ type Link struct {
 	LinkType     string
 	Data         []byte
 	IsCompressed bool
+	PasswordHash sql.NullString
 	TimesAllowed int
 	TimesUsed    int
 	ExpiresAt    time.Time
@@ -120,6 +122,13 @@ type errorPageVars struct {
 type loginPageVars struct {
 	CssSRIHash string
 	Error      string
+}
+
+// passwordPromptPageVars holds data for the password prompt page.
+type passwordPromptPageVars struct {
+	Key        string
+	Error      string
+	CssSRIHash string
 }
 
 // adminPageVars holds the data for the main admin dashboard.
