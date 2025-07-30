@@ -96,6 +96,7 @@
                                 <th><input type="checkbox" id="select-all-links" title="Select All"></th>
                                 <th>Key</th>
                                 <th>Type</th>
+                                <th>Clicks</th>
                                 <th>Expires At</th>
                             </tr>
                         </thead>
@@ -105,6 +106,7 @@
                                 <td><input type="checkbox" name="link_keys" value="{{.Key}}" class="link-checkbox"></td>
                                 <td><a href="/{{.Key}}" target="_blank">{{.Key}}</a></td>
                                 <td>{{.LinkType}}</td>
+                                <td>{{.TimesUsed}}</td>
                                 <td>{{.ExpiresAt.Format "2006-01-02 15:04 MST"}}</td>
                             </tr>
                             {{end}}
