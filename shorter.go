@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"log/slog"
@@ -157,14 +159,19 @@ func main() {
 	if err := handleCSS(mux); err != nil {
 		log.Fatalln(err)
 	}
+	// Calculate SRI hashes for all assets at startup.
+	if err := calculateSRIHashes(); err != nil {
+		// Log as a warning because the app can still run, just without SRI.
+		if slogger != nil {
+			slogger.Warn("Could not calculate SRI hashes, integrity will not be enforced", "error", err)
+		}
+	}
 	handleJS(mux)                                  // defined in handlers.go
 	handleImages(mux)                              // defined in handlers.go
 	mux.HandleFunc("/csp-report", handleCSPReport) // defined in handlers.go
-	mux.HandleFunc("/admin", basicAuth(handleAdmin))
-	mux.HandleFunc("/admin/edit", basicAuth(handleAdminEditPage))
-	mux.HandleFunc("/admin/edit_static_link", basicAuth(handleAdminEditStaticLinkPage))
-	handleRobots(mux) // defined in handlers.go
-	handleRoot(mux)   // defined in handlers.go
+	handleAdminRoutes(mux)                         // defined in handlers.go
+	handleRobots(mux)                              // defined in handlers.go
+	handleRoot(mux)                                // defined in handlers.go
 
 	// Start server
 	startupMsg := fmt.Sprintf("Starting server on %s", config.AddressPort)
@@ -174,4 +181,38 @@ func main() {
 		log.Println(startupMsg)
 	}
 	log.Fatalln(http.ListenAndServe(config.AddressPort, mux))
+}
+
+// calculateSRIHashes reads static assets (CSS, JS), computes their SRI hashes,
+// and populates the global variables. This makes the application more robust,
+// as hashes don't need to be manually updated when assets change.
+func calculateSRIHashes() error {
+	// shorter.css
+	cssBytes, err := os.ReadFile(filepath.Join(config.BaseDir, "css", "shorter.css"))
+	if err != nil {
+		return fmt.Errorf("failed to read shorter.css: %w", err)
+	}
+	cssHash := sha256.Sum256(cssBytes)
+	cssSRIHash = "sha256-" + base64.StdEncoding.EncodeToString(cssHash[:])
+
+	// admin.js
+	adminJsBytes, err := os.ReadFile(filepath.Join(config.BaseDir, "js", "admin.js"))
+	if err != nil {
+		return fmt.Errorf("failed to read admin.js: %w", err)
+	}
+	adminHash := sha256.Sum256(adminJsBytes)
+	adminJsSRIHash = "sha256-" + base64.StdEncoding.EncodeToString(adminHash[:])
+
+	// showText.js
+	showTextJsBytes, err := os.ReadFile(filepath.Join(config.BaseDir, "js", "showText.js"))
+	if err != nil {
+		return fmt.Errorf("failed to read showText.js: %w", err)
+	}
+	showTextHash := sha256.Sum256(showTextJsBytes)
+	showTextJsSRIHash = "sha256-" + base64.StdEncoding.EncodeToString(showTextHash[:])
+
+	if slogger != nil {
+		slogger.Info("Successfully calculated SRI hashes for static assets (CSS, JS)")
+	}
+	return nil
 }

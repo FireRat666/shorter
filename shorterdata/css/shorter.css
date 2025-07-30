@@ -298,3 +298,14 @@ input[type="number"].is-overridden,
 select.is-overridden {
     border: 1px solid #ff9900; /* An orange border to indicate an override */
 }
+
+/* Utility class for section subtitles in admin panel */
+.section-subtitle {
+    margin-top: 2em;
+}
+
+/* Utility class for back links in admin panel */
+.admin-back-link {
+    display: block;
+    margin-top: 1em;
+}

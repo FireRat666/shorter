@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta name="color-scheme" content="dark">
-    <link rel="stylesheet" type="text/css" href="/shorter.css">
+    <link rel="stylesheet" type="text/css" href="/shorter.css" integrity="{{.CssSRIHash}}">
     <title>Edit Static Link</title>
 </head>
 <body>
@@ -18,7 +18,7 @@
 
                 <input type="submit" value="Update Static Link" class="admin-submit-button">
             </form>
-            <a href="/admin/edit?domain={{.Domain}}" style="display: block; margin-top: 1em;">Back to Domain Management</a>
+            <a href="/admin/edit?domain={{.Domain}}" class="admin-back-link">Back to Domain Management</a>
         </div>
     </div>
 </body>

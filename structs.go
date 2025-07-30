@@ -76,14 +76,17 @@ type showLinkVars struct {
 	Timeout       string
 	TimesAllowed  int
 	RemainingUses int
+	CssSRIHash    string
 }
 
 type showTextVars struct {
-	Domain        string
-	Data          string
-	Timeout       string
-	TimesAllowed  int
-	RemainingUses int
+	Domain            string
+	Data              string
+	Timeout           string
+	TimesAllowed      int
+	RemainingUses     int
+	ShowTextJsSRIHash string
+	CssSRIHash        string
 }
 
 // IndexPageVars holds the data needed to render the index page template.
@@ -102,26 +105,31 @@ type errorPageVars struct {
 	Message    string
 }
 
-// adminPageVars holds the data needed to render the admin page.
+// adminPageVars holds the data for the main admin dashboard.
 type adminPageVars struct {
-	Subdomains    map[string]SubdomainConfig
-	Defaults      SubdomainConfig
-	PrimaryDomain string
+	Subdomains     map[string]SubdomainConfig
+	Defaults       SubdomainConfig
+	PrimaryDomain  string
+	CssSRIHash     string
+	AdminJsSRIHash string
 }
 
 // adminEditPageVars holds the data for the subdomain edit page.
 type adminEditPageVars struct {
-	Domain   string
-	Config   SubdomainConfig // The raw, specific config for the subdomain.
-	Defaults SubdomainConfig // The site-wide defaults for comparison.
-	Links    []Link
+	Domain         string
+	Config         SubdomainConfig
+	Defaults       SubdomainConfig
+	Links          []Link
+	CssSRIHash     string
+	AdminJsSRIHash string
 }
 
-// adminEditStaticLinkPageVars holds data for the static link edit page.
+// adminEditStaticLinkPageVars holds the data for the static link edit page.
 type adminEditStaticLinkPageVars struct {
 	Domain      string
 	Key         string
 	Destination string
+	CssSRIHash  string
 }
 
 // CSPReport represents the structure of a CSP violation report sent by the browser.

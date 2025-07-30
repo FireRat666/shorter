@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FireRat666/shorter/web"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -194,29 +195,24 @@ func handleRequests(w http.ResponseWriter, r *http.Request) {
 // basicAuth is a middleware that protects handlers with Basic Authentication.
 func basicAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Helper function to send the unauthorized response.
+		unauthorized := func() {
+			addHeaders(w, r) // Add security headers to the auth error response.
+			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		}
+
 		// Check if admin credentials are configured. If not, disable the endpoint.
 		if config.Admin.User == "" || config.Admin.PassHash == "" {
 			http.NotFound(w, r)
 			return
 		}
 
+		// Check credentials. If they are missing, the user is wrong, or the password hash
+		// doesn't match, send an unauthorized response.
 		user, pass, ok := r.BasicAuth()
-
-		// Check if credentials were provided and if they match the configured user.
-		if !ok || user != config.Admin.User {
-			addHeaders(w, r) // Add security headers to the auth error response.
-			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		// Compare the provided password with the stored bcrypt hash.
-		err := bcrypt.CompareHashAndPassword([]byte(config.Admin.PassHash), []byte(pass))
-		if err != nil {
-			// Password does not match.
-			addHeaders(w, r) // Add security headers to the auth error response.
-			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		if !ok || user != config.Admin.User || bcrypt.CompareHashAndPassword([]byte(config.Admin.PassHash), []byte(pass)) != nil {
+			unauthorized()
 			return
 		}
 
@@ -225,8 +221,39 @@ func basicAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// handleAdminRoutes sets up a sub-router for all admin-related endpoints.
+// It applies the basicAuth middleware to each handler and then wraps the
+// entire sub-router with the CSP middleware for enhanced security.
+func handleAdminRoutes(mux *http.ServeMux) {
+	// Create a new router for admin-only endpoints.
+	adminRouter := http.NewServeMux()
+
+	// Register the admin handlers, each wrapped in basicAuth.
+	// The paths are relative to the "/admin" prefix that will be stripped.
+	adminRouter.HandleFunc("/", basicAuth(handleAdmin)) // Matches /admin
+	adminRouter.HandleFunc("/edit", basicAuth(handleAdminEditPage))
+	adminRouter.HandleFunc("/edit_static_link", basicAuth(handleAdminEditStaticLinkPage))
+
+	// Create a handler that first strips the "/admin" prefix, then passes to the adminRouter.
+	// This is the standard way to handle sub-routing.
+	adminHandler := http.StripPrefix("/admin", adminRouter)
+
+	// Wrap the StripPrefix handler with our CSP middleware.
+	finalAdminHandler := web.CspAdminMiddleware(adminHandler)
+
+	mux.Handle("/admin/", finalAdminHandler)
+}
+
 // handleAdmin serves the admin dashboard page.
 func handleAdmin(w http.ResponseWriter, r *http.Request) {
+	// This handler is only for the root of the admin section ("/admin" or "/admin/").
+	// After StripPrefix, the path for these is "/". Any other path that falls
+	// through to here (like a request for a static asset) is a 404.
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+
 	// Route request based on HTTP method.
 	if r.Method == http.MethodPost {
 		// Further route POST requests based on the 'action' form value.
@@ -267,9 +294,11 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pageVars := adminPageVars{
-		Subdomains:    displaySubdomains,
-		Defaults:      config.Defaults,
-		PrimaryDomain: primaryDomain,
+		Subdomains:     displaySubdomains,
+		Defaults:       config.Defaults,
+		PrimaryDomain:  primaryDomain,
+		CssSRIHash:     cssSRIHash,
+		AdminJsSRIHash: adminJsSRIHash,
 	}
 
 	if err := adminTmpl.Execute(w, pageVars); err != nil {
@@ -379,10 +408,12 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 		}
 
 		pageVars := adminEditPageVars{
-			Domain:   domain,
-			Config:   subdomainCfg,
-			Defaults: config.Defaults,
-			Links:    links,
+			Domain:         domain,
+			Config:         subdomainCfg,
+			Defaults:       config.Defaults,
+			Links:          links,
+			CssSRIHash:     cssSRIHash,
+			AdminJsSRIHash: adminJsSRIHash,
 		}
 
 		addHeaders(w, r)
@@ -548,6 +579,7 @@ func handleAdminEditStaticLinkPage(w http.ResponseWriter, r *http.Request) {
 			Domain:      domain,
 			Key:         key,
 			Destination: destination,
+			CssSRIHash:  cssSRIHash,
 		}
 
 		addHeaders(w, r)
@@ -805,6 +837,7 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 			Timeout:       lnk.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
 			TimesAllowed:  lnk.TimesAllowed,
 			RemainingUses: lnk.TimesAllowed - (lnk.TimesUsed + 1),
+			CssSRIHash:    cssSRIHash,
 		}
 		if err := t.Execute(w, tmplArgs); err != nil {
 			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute showLink template: "+err.Error())
@@ -840,11 +873,13 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 		}
 
 		tmplArgs := showTextVars{
-			Domain:        scheme + "://" + r.Host,
-			Data:          textContent,
-			Timeout:       lnk.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
-			TimesAllowed:  lnk.TimesAllowed,
-			RemainingUses: lnk.TimesAllowed - (lnk.TimesUsed + 1),
+			Domain:            scheme + "://" + r.Host,
+			Data:              textContent,
+			Timeout:           lnk.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
+			TimesAllowed:      lnk.TimesAllowed,
+			RemainingUses:     lnk.TimesAllowed - (lnk.TimesUsed + 1),
+			CssSRIHash:        cssSRIHash,
+			ShowTextJsSRIHash: showTextJsSRIHash,
 		}
 		if err := t.Execute(w, tmplArgs); err != nil {
 			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute showText template: "+err.Error())
@@ -895,7 +930,14 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 	}
 
 	fullURL := scheme + "://" + r.Host + "/" + link.Key
-	tmplArgs := showLinkVars{Domain: scheme + "://" + r.Host, Data: fullURL, Timeout: link.ExpiresAt.Format("Mon 2006-01-02 15:04 MST")}
+	tmplArgs := showLinkVars{
+		Domain:        scheme + "://" + r.Host,
+		Data:          fullURL,
+		Timeout:       link.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
+		TimesAllowed:  link.TimesAllowed,
+		RemainingUses: link.TimesAllowed, // On creation, remaining uses equals times allowed.
+		CssSRIHash:    cssSRIHash,
+	}
 	if err := t.Execute(w, tmplArgs); err != nil {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute showLink template: "+err.Error())
 	}

@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
     <meta name="color-scheme" content="dark">
-    <link rel="stylesheet" type="text/css" href="/shorter.css">
-    <script src="/js/admin.js" defer></script>
+    <link rel="stylesheet" type="text/css" href="/shorter.css" integrity="{{.CssSRIHash}}">
+    <script src="/js/admin.js" integrity="{{.AdminJsSRIHash}}" defer></script>
     <title>Edit Subdomain - {{.Domain}}</title>
 </head>
 <body>
@@ -41,7 +41,7 @@
 
                 <input type="submit" value="Update Subdomain" class="admin-submit-button">
             </form>
-            <a href="/admin" style="display: block; margin-top: 1em;">Back to Admin Panel</a>
+            <a href="/admin" class="admin-back-link">Back to Admin Panel</a>
         </div>
 
         <div class="tos">
@@ -74,7 +74,7 @@
                     </tbody>
                 </table>
             {{end}}
-            <h3 style="margin-top: 2em;">Add New Static Link</h3>
+            <h3 class="section-subtitle">Add New Static Link</h3>
             <form class="admin-form" method="POST" action="/admin/edit?domain={{.Domain}}">
                 <input type="hidden" name="action" value="add_static_link">
                 <label for="new_static_key">Key:</label>
