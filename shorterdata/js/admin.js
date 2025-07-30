@@ -1,13 +1,26 @@
 document.addEventListener('DOMContentLoaded', function () {
-    const deleteButtons = document.querySelectorAll('.delete-button');
+    // Find all forms that contain a submit button with a data-confirm attribute.
+    document.querySelectorAll('form').forEach(form => {
+        // Find the specific submit button within this form.
+        const submitButton = form.querySelector('input[type="submit"][data-confirm]');
 
-    deleteButtons.forEach(button => {
-        button.addEventListener('click', function (event) {
-            const message = button.getAttribute('data-confirm');
-            if (message && !confirm(message)) {
-                // If the user clicks "Cancel", prevent the form submission.
+        // If this form doesn't have a confirmation button, skip it.
+        if (!submitButton) {
+            return;
+        }
+
+        // Listen for the 'submit' event on the form itself. This is more reliable
+        // than listening for a 'click' on the button.
+        form.addEventListener('submit', function (event) {
+            const message = submitButton.getAttribute('data-confirm');
+
+            // If the message exists and the user clicks "Cancel" in the confirmation dialog...
+            if (message && !window.confirm(message)) {
+                // ...then prevent the form from being submitted.
                 event.preventDefault();
             }
+            // Otherwise, if the user clicks "OK", the event is not prevented,
+            // and the form will submit as normal.
         });
     });
 });

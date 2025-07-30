@@ -4,19 +4,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	_ "embed"
 	"fmt"
-	"html/template"
 	"io"
 	"log/slog"
-	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
 )
 
 // validate validates if string s contains only characters in charset. validate is not a crypto related function so no need for constant time
@@ -118,27 +112,6 @@ func validRequest(r *http.Request) bool {
 	return validHost && validType
 }
 
-var customResolver *net.Resolver
-
-func initResolver() {
-	if len(config.MalwareProtection.CustomDNSServers) > 0 {
-		dialer := &net.Dialer{
-			Timeout: 5 * time.Second,
-		}
-		customResolver = &net.Resolver{
-			PreferGo: true,
-			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				// Randomly select a DNS server from the list for each dial to improve resilience.
-				server := config.MalwareProtection.CustomDNSServers[rand.Intn(len(config.MalwareProtection.CustomDNSServers))]
-				return dialer.DialContext(ctx, "udp", server)
-			},
-		}
-		if slogger != nil {
-			slogger.Info("Using custom DNS resolver for malware checks", "servers", config.MalwareProtection.CustomDNSServers)
-		}
-	}
-}
-
 // isURLBlockedByDNSBL checks if the domain of a given URL is listed on any of the configured DNSBL servers.
 func isURLBlockedByDNSBL(urlToCheck string) (bool, error) {
 	if !config.MalwareProtection.Enabled || len(config.MalwareProtection.DNSBLServers) == 0 {
@@ -213,33 +186,6 @@ func lowRAM() bool {
 	return config.LowRAM
 }
 
-// findDataDir locates the data directory by searching in common locations.
-// It prioritizes the directory next to the executable, then the current working directory.
-func findDataDir(baseDirName string) (string, error) {
-	// 1. Check for path relative to the executable
-	exePath, err := os.Executable()
-	if err == nil {
-		exeDir := filepath.Dir(exePath)
-		relPath := filepath.Join(exeDir, baseDirName)
-		if _, err := os.Stat(relPath); err == nil {
-			// Found it next to the executable
-			return relPath, nil
-		}
-	}
-
-	// 2. If not found, check the current working directory
-	cwd, err := os.Getwd()
-	if err == nil {
-		cwdPath := filepath.Join(cwd, baseDirName)
-		if _, err := os.Stat(cwdPath); err == nil {
-			// Found it in the CWD
-			return cwdPath, nil
-		}
-	}
-
-	return "", fmt.Errorf("could not find data directory '%s' relative to executable or current working directory", baseDirName)
-}
-
 func compress(data []byte) (compressedData []byte, err error) {
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
@@ -293,6 +239,7 @@ func logErrors(w http.ResponseWriter, r *http.Request, userMessage string, statu
 	vars := errorPageVars{
 		StatusCode: statusCode,
 		Message:    userMessage,
+		CssSRIHash: cssSRIHash,
 	}
 	// We don't check the error here, as we can't send another error response.
 	_ = errorTmpl.Execute(w, vars)
@@ -307,99 +254,5 @@ func logOK(r *http.Request, statusCode int) {
 			slog.String("path", r.URL.Path),
 			slog.String("remote_addr", r.RemoteAddr),
 		)
-	}
-}
-
-//go:embed embedded/index.default.tmpl
-var defaultIndexHTMLFormat string
-
-//go:embed embedded/showLink.default.tmpl
-var defaultShowLinkHTML string
-
-//go:embed embedded/showText.default.tmpl
-var defaultShowTextHTML string
-
-//go:embed embedded/error.default.tmpl
-var defaultErrorHTML string
-
-//go:embed embedded/admin.default.tmpl
-var defaultAdminHTML string
-
-//go:embed embedded/admin_edit.default.tmpl
-var defaultAdminEditHTML string
-
-//go:embed embedded/admin_edit_static_link.default.tmpl
-var defaultAdminEditStaticLinkHTML string
-
-func initTemplates() {
-	// templateMap should be used as read only after initTemplates() has returned
-	templateMap = make(map[string]*template.Template)
-
-	// Create index page from embedded default, or custom file if it exists.
-	loadTemplate("index", defaultIndexHTMLFormat)
-	// Create page for showing links from embedded default, or custom file if it exists.
-	loadTemplate("showLink", defaultShowLinkHTML)
-	// Create page for showing text dumps from embedded default, or custom file if it exists.
-	loadTemplate("showText", defaultShowTextHTML)
-	// Create an admin page.
-	loadTemplate("admin", defaultAdminHTML)
-	// Create an admin edit page.
-	loadTemplate("admin_edit", defaultAdminEditHTML)
-	// Create a page for editing static links.
-	loadTemplate("admin_edit_static_link", defaultAdminEditStaticLinkHTML)
-	// Create a generic error page.
-	loadTemplate("error", defaultErrorHTML)
-}
-
-func loadTemplate(templateName, defaultTmplStr string) {
-	// The location for user-provided custom templates.
-	templatePath := filepath.Join(config.BaseDir, "templates", templateName+".tmpl")
-
-	// Try to parse the custom template file from disk.
-	tmpl, err := template.ParseFiles(templatePath)
-	if err != nil {
-		// If the file doesn't exist or fails to parse, fall back to the embedded default.
-		tmpl = template.Must(template.New(templateName).Parse(defaultTmplStr))
-	} else if slogger != nil {
-		slogger.Info("Successfully loaded custom template", "path", templatePath)
-	}
-
-	// Store the loaded or default template in the map with a simple key.
-	templateMap[templateName] = tmpl
-}
-
-func initImages() {
-	ImageMap = make(map[string][]byte)
-	imageDir := filepath.Join(config.BaseDir, "images")
-
-	files, err := os.ReadDir(imageDir)
-	if err != nil {
-		if slogger != nil {
-			slogger.Warn("Error reading image directory, images may not be available", "path", imageDir, "error", err)
-		}
-		// If we can't read the directory, we stop. This avoids using any old, hardcoded fallbacks.
-		return
-	}
-
-	for _, file := range files {
-		// We only care about files, not subdirectories
-		if file.IsDir() {
-			continue
-		}
-
-		fileName := file.Name()
-		// Load only common image types to avoid loading other files by mistake
-		if strings.HasSuffix(fileName, ".png") || strings.HasSuffix(fileName, ".ico") || strings.HasSuffix(fileName, ".svg") {
-			filePath := filepath.Join(imageDir, fileName)
-			data, err := os.ReadFile(filePath)
-			if err != nil {
-				slogger.Error("Error reading image file", "path", filePath, "error", err)
-				continue // Skip this file and try the next one
-			}
-			ImageMap[fileName] = data
-			if slogger != nil {
-				slogger.Info("Successfully loaded image", "name", fileName, "size_bytes", len(data))
-			}
-		}
 	}
 }

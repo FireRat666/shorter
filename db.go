@@ -10,8 +10,6 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib" // PostgreSQL driver for database/sql
 )
 
-var db *sql.DB // Global database connection pool
-
 // setupDB connects to the PostgreSQL database and ensures the schema is created.
 func setupDB(databaseURL string) error {
 	var err error
@@ -36,7 +34,7 @@ func setupDB(databaseURL string) error {
 	// Create the links table if it doesn't already exist
 	schema := `
 	CREATE TABLE IF NOT EXISTS links (
-		key TEXT PRIMARY KEY,
+		key TEXT NOT NULL,
 		domain TEXT NOT NULL,
 		link_type TEXT NOT NULL,
 		data BYTEA NOT NULL,
@@ -44,7 +42,8 @@ func setupDB(databaseURL string) error {
 		times_allowed INT NOT NULL,
 		times_used INT DEFAULT 0 NOT NULL,
 		expires_at TIMESTAMPTZ NOT NULL,
-		created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+		created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+		PRIMARY KEY (key, domain)
 	);`
 
 	if _, err = db.ExecContext(ctx, schema); err != nil {
@@ -116,9 +115,21 @@ func saveSubdomainConfigToDB(ctx context.Context, domain string, subConfig Subdo
 // deleteSubdomainFromDB removes a subdomain's configuration from the database.
 func deleteSubdomainFromDB(ctx context.Context, domain string) error {
 	query := `DELETE FROM subdomain_configs WHERE domain = $1;`
-	_, err := db.ExecContext(ctx, query, domain)
+	result, err := db.ExecContext(ctx, query, domain)
 	if err != nil {
 		return fmt.Errorf("failed to delete subdomain %s: %w", domain, err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if slogger != nil {
+		if err != nil {
+			// This is less likely, but good to handle.
+			slogger.Warn("Could not get rows affected after deleting subdomain", "domain", domain, "error", err)
+		} else if rowsAffected == 0 {
+			slogger.Warn("Attempted to delete subdomain from DB, but it was not found", "domain", domain)
+		} else {
+			slogger.Info("Successfully deleted subdomain from database", "domain", domain, "rows_affected", rowsAffected)
+		}
 	}
 	return nil
 }
@@ -126,11 +137,38 @@ func deleteSubdomainFromDB(ctx context.Context, domain string) error {
 // deleteLinksForDomain removes all dynamic links associated with a specific domain.
 func deleteLinksForDomain(ctx context.Context, domain string) error {
 	query := `DELETE FROM links WHERE domain = $1;`
-	_, err := db.ExecContext(ctx, query, domain)
+	result, err := db.ExecContext(ctx, query, domain)
 	if err != nil {
 		return fmt.Errorf("failed to delete links for domain %s: %w", domain, err)
 	}
+	rowsAffected, err := result.RowsAffected()
+	if slogger != nil {
+		if err != nil {
+			slogger.Warn("Could not get rows affected after deleting links for domain", "domain", domain, "error", err)
+		} else {
+			// It's normal for a domain to have 0 links, so this is just an Info log.
+			slogger.Info("Deleted dynamic links for domain", "domain", domain, "links_deleted", rowsAffected)
+		}
+	}
 	return nil
+}
+
+// deleteExpiredLinksFromDB removes all links that have passed their expiration date.
+// This is useful to run at startup to free up keys from expired links.
+func deleteExpiredLinksFromDB(ctx context.Context) (int64, error) {
+	query := `DELETE FROM links WHERE expires_at <= NOW();`
+	result, err := db.ExecContext(ctx, query)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete expired links: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		// This is less likely, but good to handle.
+		return 0, fmt.Errorf("could not get rows affected after deleting expired links: %w", err)
+	}
+
+	return rowsAffected, nil
 }
 
 // getLinksForDomain retrieves all active links for a specific domain, ordered by creation date.
@@ -233,8 +271,8 @@ func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 	}
 
 	// Increment the usage count for the retrieved link.
-	queryUpdate := `UPDATE links SET times_used = times_used + 1 WHERE key = $1;`
-	if _, err = tx.ExecContext(ctx, queryUpdate, key); err != nil {
+	queryUpdate := `UPDATE links SET times_used = times_used + 1 WHERE key = $1 AND domain = $2;`
+	if _, err = tx.ExecContext(ctx, queryUpdate, key, domain); err != nil {
 		return nil, fmt.Errorf("failed to update link usage: %w", err)
 	}
 

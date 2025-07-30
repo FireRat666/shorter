@@ -19,6 +19,9 @@ BaseDir: "shorterdata"
 Logging: true
 # Logfile should be empty to log to standard output, which Render captures.
 Logfile: ""
+# LogLevel sets the minimum level of logs to record.
+# Options (from least to most verbose): "error", "warn", "info", "debug"
+LogLevel: "info"
 # LogSep should be a random secret string.
 LogSep: "change-me-to-a-random-secret-string"
 

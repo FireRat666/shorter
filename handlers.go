@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/FireRat666/shorter/web"
+	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -246,6 +248,11 @@ func handleAdminRoutes(mux *http.ServeMux) {
 
 // handleAdmin serves the admin dashboard page.
 func handleAdmin(w http.ResponseWriter, r *http.Request) {
+	// Added for debugging: Log every request that reaches the admin handler.
+	if slogger != nil {
+		slogger.Debug("Admin handler reached", "method", r.Method, "path", r.URL.Path, "form_action", r.FormValue("action"))
+	}
+
 	// This handler is only for the root of the admin section ("/admin" or "/admin/").
 	// After StripPrefix, the path for these is "/". Any other path that falls
 	// through to here (like a request for a static asset) is a 404.
@@ -345,10 +352,24 @@ func handleAdminDeleteSubdomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check that the subdomain actually exists in our configuration.
+	if _, ok := config.Subdomains[subdomainName]; !ok {
+		logErrors(w, r, "Subdomain not found.", http.StatusNotFound, "Attempted to delete non-existent subdomain: "+subdomainName)
+		return
+	}
+
+	if slogger != nil {
+		slogger.Info("Starting deletion process for subdomain", "subdomain", subdomainName)
+	}
+
 	// Also delete all dynamic links associated with this subdomain.
 	if err := deleteLinksForDomain(r.Context(), subdomainName); err != nil {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete associated links from database: "+err.Error())
 		return
+	}
+
+	if slogger != nil {
+		slogger.Info("Finished deleting dynamic links for subdomain", "subdomain", subdomainName)
 	}
 
 	// Remove the subdomain from the database.
@@ -357,8 +378,15 @@ func handleAdminDeleteSubdomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if slogger != nil {
+		slogger.Info("Finished deleting subdomain config from database", "subdomain", subdomainName)
+	}
+
 	// Remove the subdomain from the in-memory config.
 	delete(config.Subdomains, subdomainName)
+	if slogger != nil {
+		slogger.Info("Successfully removed subdomain from in-memory map", "subdomain", subdomainName)
+	}
 
 	// Redirect back to the admin page.
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
@@ -892,9 +920,22 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 				return
 			}
 			err = createLinkInDB(ctx, *link)
+
+			// If the insert was successful, break the loop.
 			if err == nil {
-				break // Success
+				break
 			}
+
+			// Check if the error is a PostgreSQL unique violation (duplicate key).
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				// This is a key collision. The loop will continue and try again.
+				slogger.Debug("Key collision detected, retrying...", "key", link.Key, "attempt", i+1)
+				continue
+			}
+
+			// If it's any other type of error, break the loop immediately.
+			break
 		}
 	} else {
 		// This is a custom key, attempt to insert it once.
@@ -902,6 +943,18 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 	}
 
 	if err != nil {
+		var pgErr *pgconn.PgError
+		// Check if the final error was a duplicate key error.
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			// keyLength is 0 for custom keys, non-zero for random keys.
+			if keyLength == 0 {
+				logErrors(w, r, errInvalidKeyUsed, http.StatusConflict, "Custom key is already in use: "+err.Error())
+			} else {
+				logErrors(w, r, "Could not generate a unique link. Please try a longer link length.", http.StatusConflict, "Failed to create link after multiple key collision retries: "+err.Error())
+			}
+			return
+		}
+		// For all other errors, use the generic server error message.
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to create link in database: "+err.Error())
 		return
 	}
@@ -941,20 +994,25 @@ func handleCSS(mux *http.ServeMux) error {
 }
 
 func handleJS(mux *http.ServeMux) {
-	jsDir := filepath.Join(config.BaseDir, "js")
-	files, err := os.ReadDir(jsDir)
+	// Explicitly handle each known JS file to mirror the logic in calculateSRIHashes
+	// and ensure consistency.
+
+	// admin.js
+	adminJSPath := filepath.Join(config.BaseDir, "js", "admin.js")
+	adminJSBytes, err := os.ReadFile(adminJSPath)
 	if err != nil {
-		slogger.Warn("JS directory not found, skipping JS handlers.", "path", jsDir)
-		return
+		slogger.Warn("admin.js not found, skipping handler setup.", "path", adminJSPath)
+	} else {
+		mux.HandleFunc("/js/admin.js", getSingleFileHandler(adminJSBytes, "application/javascript"))
 	}
 
-	for _, file := range files {
-		if !file.IsDir() && strings.HasSuffix(file.Name(), ".js") {
-			f, err := os.ReadFile(filepath.Join(jsDir, file.Name()))
-			if err == nil {
-				mux.HandleFunc("/js/"+file.Name(), getSingleFileHandler(f, "application/javascript"))
-			}
-		}
+	// showText.js
+	showTextJSPath := filepath.Join(config.BaseDir, "js", "showText.js")
+	showTextJSBytes, err := os.ReadFile(showTextJSPath)
+	if err != nil {
+		slogger.Warn("showText.js not found, skipping handler setup.", "path", showTextJSPath)
+	} else {
+		mux.HandleFunc("/js/showText.js", getSingleFileHandler(showTextJSBytes, "application/javascript"))
 	}
 }
 

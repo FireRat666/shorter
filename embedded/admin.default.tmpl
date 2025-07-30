@@ -55,7 +55,7 @@
                             <td>{{len $config.StaticLinks}}</td>
                             <td><a href="/admin/edit?domain={{$domain}}" class="edit-button">Edit</a></td>
                             <td>
-                                <form method="POST" action="/admin">
+                                <form method="POST" action="/admin/">
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="subdomain" value="{{$domain}}">
                                     <input type="submit" value="Delete" class="delete-button" data-confirm="Are you sure you want to delete this subdomain and all of its links? This action cannot be undone." {{if eq $domain $.PrimaryDomain}}disabled{{end}}>
@@ -71,7 +71,7 @@
         </div>
         <div class="tos">
             <h2>Create New Subdomain</h2>
-            <form class="admin-form" method="POST" action="/admin">
+            <form class="admin-form" method="POST" action="/admin/">
                 <input type="hidden" name="action" value="create">
                 <label for="subdomain">Subdomain Name:</label>
                 <input type="text" id="subdomain" name="subdomain" class="inputbox" placeholder="user1.your-app.com" required>
