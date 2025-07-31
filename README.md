@@ -230,7 +230,13 @@ curl -X POST "https://shorter.example.com/api/v1/links" \
 
 ## Future Ideas
 *   **Abuse Reporting**: Add a form, protected by a captcha, for users to report links that violate the Terms of Service.
-*   **Data Visualization**: Add charts to the statistics page to visualize recent activity.
+*   **Data Visualization**: Continue to expand the data visualization capabilities on the statistics page with more charts and interactive elements.
+*   **User Accounts**: Allow non-admin users to register for accounts to manage their own links and API keys, turning the service into a multi-tenant platform.
+*   **Link & API Key Descriptions**: Add a description field to links and API keys to make them easier to identify and manage in the admin panel.
+*   **API Rate Limiting**: Implement rate limiting on the public API to prevent abuse and ensure service stability.
+*   **API Expansion**: Expand the API to allow reading, updating, and deleting links for more powerful programmatic administration.
+*   **Health Check Endpoint**: Create a dedicated `/health` endpoint for automated monitoring by deployment platforms.
+*   **Admin Audit Log**: Track all administrative actions (e.g., who deleted a link, changed a setting, or generated an API key) for security and accountability.
 
 ## License
 
