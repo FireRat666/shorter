@@ -33,7 +33,10 @@ LinkLen3: 3
 
 # Other settings
 MaxKeyLen: 64
-MaxFileSize: 10000000 # 10MB
+# MaxRequestSize sets the maximum size for the entire form submission (potentially including future file uploads).
+MaxRequestSize: 10000000 # 10MB
+MaxURLSize: 2048 # Max length for a URL.
+MaxTextSize: 100000 # Max size for a text dump (100KB).
 MinSizeToGzip: 128
 # Default session duration for admin login.
 SessionTimeout: "24h"

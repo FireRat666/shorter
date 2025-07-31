@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
 	"database/sql"
 	"time"
 )
@@ -21,7 +20,9 @@ type Config struct {
 	LinkLen1                 int                        `yaml:"LinkLen1"`
 	LinkLen2                 int                        `yaml:"LinkLen2"`
 	LinkLen3                 int                        `yaml:"LinkLen3"`
-	MaxFileSize              int64                      `yaml:"MaxFileSize"`
+	MaxRequestSize           int64                      `yaml:"MaxRequestSize"`
+	MaxURLSize               int                        `yaml:"MaxURLSize"`
+	MaxTextSize              int                        `yaml:"MaxTextSize"`
 	MinSizeToGzip            int                        `yaml:"MinSizeToGzip"`
 	LowRAM                   bool                       `yaml:"LowRAM"`
 	SessionTimeout           string                     `yaml:"SessionTimeout"`
@@ -119,6 +120,8 @@ type IndexPageVars struct {
 	LinkLen3Display string
 	CustomDisplay   string
 	LinkAccessMaxNr int
+	MaxURLSize      int
+	MaxTextSize     int
 }
 
 // errorPageVars holds the data needed to render a generic error page.
@@ -200,20 +203,4 @@ type CSPReport struct {
 		BlockedURI         string `json:"blocked-uri"`
 		StatusCode         int    `json:"status-code"`
 	} `json:"csp-report"`
-}
-
-// generateRandomKey creates a random key of a given length from the allowed charset.
-func generateRandomKey(length int) (string, error) {
-	key := make([]byte, length)
-	// Read random bytes
-	if _, err := rand.Read(key); err != nil {
-		return "", err
-	}
-
-	// Map random bytes to the charset
-	for i := 0; i < length; i++ {
-		key[i] = charset[int(key[i])%len(charset)]
-	}
-
-	return string(key), nil
 }

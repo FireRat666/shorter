@@ -60,7 +60,7 @@ func handlePOST(w http.ResponseWriter, r *http.Request) {
 		scheme = "https"
 	}
 
-	err := r.ParseMultipartForm(config.MaxFileSize)
+	err := r.ParseMultipartForm(config.MaxRequestSize)
 	if err != nil {
 		logErrors(w, r, errServerError, http.StatusBadRequest, "Error parsing form: "+url.QueryEscape(err.Error()))
 		return
@@ -151,6 +151,11 @@ func handlePOST(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if len(formURL) > config.MaxURLSize {
+			logErrors(w, r, "URL is too long.", http.StatusRequestEntityTooLarge, fmt.Sprintf("Submitted URL length %d exceeds maximum of %d", len(formURL), config.MaxURLSize))
+			return
+		}
+
 		// Prepend https:// if no scheme is present.
 		if !strings.HasPrefix(formURL, "http://") && !strings.HasPrefix(formURL, "https://") {
 			formURL = "https://" + formURL
@@ -181,6 +186,12 @@ func handlePOST(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		textBlob := r.Form.Get("text")
+
+		if len(textBlob) > config.MaxTextSize {
+			logErrors(w, r, "Text content is too large.", http.StatusRequestEntityTooLarge, fmt.Sprintf("Submitted text size %d exceeds maximum of %d", len(textBlob), config.MaxTextSize))
+			return
+		}
+
 		textBytes := []byte(textBlob)
 		link.LinkType = "text"
 		link.Data = textBytes
@@ -957,6 +968,8 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 			LinkLen3Display: subdomainCfg.LinkLen3Display,
 			CustomDisplay:   subdomainCfg.CustomDisplay,
 			LinkAccessMaxNr: subdomainCfg.LinkAccessMaxNr,
+			MaxURLSize:      config.MaxURLSize,
+			MaxTextSize:     config.MaxTextSize,
 		}
 
 		if err := indexTmpl.Execute(w, pageVars); err != nil {

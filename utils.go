@@ -117,3 +117,19 @@ func generateSessionToken() (string, error) {
 	// Encode to a URL-safe base64 string, which is cookie-friendly.
 	return base64.URLEncoding.EncodeToString(b), nil
 }
+
+// generateRandomKey creates a random key of a given length from the allowed charset.
+func generateRandomKey(length int) (string, error) {
+	key := make([]byte, length)
+	// Read random bytes
+	if _, err := rand.Read(key); err != nil {
+		return "", err
+	}
+
+	// Map random bytes to the charset
+	for i := 0; i < length; i++ {
+		key[i] = charset[int(key[i])%len(charset)]
+	}
+
+	return string(key), nil
+}

@@ -27,6 +27,7 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
 *   **Customizable Theming**: Override the default HTML templates with your own to match your brand.
 *   **Deployment Ready**: Designed for modern deployment platforms like Render, with full support for configuration via environment variables.
 *   **Secure by Default**: Implements a strict Content Security Policy (CSP) and other security headers to protect users.
+*   **Resource Management**: Configurable size limits for URL and text submissions to prevent abuse and manage database size.
 
 ## Installation
 

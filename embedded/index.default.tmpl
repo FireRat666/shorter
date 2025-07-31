@@ -38,11 +38,11 @@
                     <label for="requestType">Temporary text dump</label>
                     <div id="urlDiv">
                         <span>Submit URL to shorten:</span>
-                        <input type="text" name="url" class="inputbox" placeholder="Your URL Here">
+                        <input type="text" name="url" class="inputbox" placeholder="Your URL Here" maxlength="{{.MaxURLSize}}">
                     </div>
                     <div id="textDiv">
                         <span>Submit text to save temporarily:</span>
-                        <textarea form="shortener" rows="7" cols="80" name="text"></textarea>
+                        <textarea form="shortener" rows="7" cols="80" name="text" maxlength="{{.MaxTextSize}}"></textarea>
                     </div>
                 </div>
                 <div class="radio-box">
