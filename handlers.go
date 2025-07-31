@@ -33,6 +33,11 @@ func handleRoot(mux *http.ServeMux) {
 		// Route the request based on its method.
 		switch r.Method {
 		case http.MethodGet, http.MethodHead:
+			// If the request is for the root path, serve the index page.
+			if r.URL.Path == "/" {
+				serveIndexPage(w, r)
+				return
+			}
 			handleGET(w, r)
 		case http.MethodPost:
 			// If the POST is to the root path, it's a new link creation.
@@ -1156,9 +1161,87 @@ func handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	logOK(r, http.StatusOK)
 }
 
-// handleGET will handle GET requests and redirect to the saved link for a key, return a saved textblob or return a file
-func handleGET(w http.ResponseWriter, r *http.Request) {
+func serveIndexPage(w http.ResponseWriter, r *http.Request) {
+	subdomainCfg := getSubdomainConfig(r.Host)
 
+	// Check for quick add feature: a GET request to the root with a query string.
+	if r.URL.RawQuery != "" {
+		formURL := r.URL.RawQuery // The raw query is the URL.
+
+		// Prepend https:// if no scheme is present.
+		if !strings.HasPrefix(formURL, "http://") && !strings.HasPrefix(formURL, "https://") {
+			formURL = "https://" + formURL
+		}
+
+		// Validate the final URL structure.
+		if _, err := url.ParseRequestURI(formURL); err != nil {
+			logErrors(w, r, "The provided URL appears to be invalid.", http.StatusBadRequest, "Invalid quick-add URL after normalization")
+			return
+		}
+
+		// Check the URL against the blocklist.
+		isBlocked, err := isURLBlockedByDNSBL(formURL)
+		if err != nil || isBlocked {
+			if err != nil {
+				slogger.Error("DNSBL check failed, blocking submission", "url", formURL, "error", err)
+			}
+			logErrors(w, r, "The provided URL is not allowed.", http.StatusBadRequest, "Blocked malicious URL submission")
+			return
+		}
+
+		linkTimeout, err := time.ParseDuration(subdomainCfg.LinkLen1Timeout)
+		if err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Error parsing default link timeout duration: "+err.Error())
+			return
+		}
+
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+
+		link := &Link{
+			Domain:       r.Host,
+			LinkType:     "url",
+			Data:         []byte(formURL),
+			IsCompressed: false,
+			TimesAllowed: 0, // Default to unlimited uses within the timeout period.
+			ExpiresAt:    time.Now().Add(linkTimeout),
+		}
+
+		createAndRespond(w, r, link, config.LinkLen1, scheme)
+		return
+	}
+
+	csrfToken := getOrSetCSRFToken(w, r)
+
+	indexTmpl, ok := templateMap["index"]
+	if !ok || indexTmpl == nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load index template")
+		return
+	}
+	// Prepare the data for the index page template.
+	pageVars := IndexPageVars{
+		CssSRIHash:      cssSRIHash,
+		LinkLen1Display: subdomainCfg.LinkLen1Display,
+		LinkLen2Display: subdomainCfg.LinkLen2Display,
+		LinkLen3Display: subdomainCfg.LinkLen3Display,
+		CustomDisplay:   subdomainCfg.CustomDisplay,
+		LinkAccessMaxNr: subdomainCfg.LinkAccessMaxNr,
+		MaxURLSize:      config.MaxURLSize,
+		MaxTextSize:     config.MaxTextSize,
+		CSRFToken:       csrfToken,
+	}
+
+	if err := indexTmpl.Execute(w, pageVars); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute index template: "+err.Error())
+		return
+	}
+	logOK(r, http.StatusOK)
+}
+
+// handleGET will handle GET requests for a specific link key.
+func handleGET(w http.ResponseWriter, r *http.Request) {
 	// This is a safeguard. Requests for static assets should be caught by their specific
 	// handlers. If a request for such a path reaches this general-purpose handler, it
 	// means the specific handler was not registered (likely due to a missing file at
@@ -1181,85 +1264,6 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 
 	// Get the specific configuration for the requested host.
 	subdomainCfg := getSubdomainConfig(r.Host)
-
-	// Return Index page if GET request without a key
-	if len(key) == 0 {
-		// Check for quick add feature: a GET request to the root with a query string.
-		if r.URL.RawQuery != "" {
-			formURL := r.URL.RawQuery // The raw query is the URL.
-
-			// Prepend https:// if no scheme is present.
-			if !strings.HasPrefix(formURL, "http://") && !strings.HasPrefix(formURL, "https://") {
-				formURL = "https://" + formURL
-			}
-
-			// Validate the final URL structure.
-			if _, err := url.ParseRequestURI(formURL); err != nil {
-				logErrors(w, r, "The provided URL appears to be invalid.", http.StatusBadRequest, "Invalid quick-add URL after normalization")
-				return
-			}
-
-			// Check the URL against the blocklist.
-			isBlocked, err := isURLBlockedByDNSBL(formURL)
-			if err != nil || isBlocked {
-				if err != nil {
-					slogger.Error("DNSBL check failed, blocking submission", "url", formURL, "error", err)
-				}
-				logErrors(w, r, "The provided URL is not allowed.", http.StatusBadRequest, "Blocked malicious URL submission")
-				return
-			}
-
-			linkTimeout, err := time.ParseDuration(subdomainCfg.LinkLen1Timeout)
-			if err != nil {
-				logErrors(w, r, errServerError, http.StatusInternalServerError, "Error parsing default link timeout duration: "+err.Error())
-				return
-			}
-
-			scheme := "http"
-			if r.TLS != nil {
-				scheme = "https"
-			}
-
-			link := &Link{
-				Domain:       r.Host,
-				LinkType:     "url",
-				Data:         []byte(formURL),
-				IsCompressed: false,
-				TimesAllowed: 0, // Default to unlimited uses within the timeout period.
-				ExpiresAt:    time.Now().Add(linkTimeout),
-			}
-
-			createAndRespond(w, r, link, config.LinkLen1, scheme)
-			return
-		}
-
-		csrfToken := getOrSetCSRFToken(w, r)
-
-		indexTmpl, ok := templateMap["index"]
-		if !ok || indexTmpl == nil {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load index template")
-			return
-		}
-		// Prepare the data for the index page template.
-		pageVars := IndexPageVars{
-			CssSRIHash:      cssSRIHash,
-			LinkLen1Display: subdomainCfg.LinkLen1Display,
-			LinkLen2Display: subdomainCfg.LinkLen2Display,
-			LinkLen3Display: subdomainCfg.LinkLen3Display,
-			CustomDisplay:   subdomainCfg.CustomDisplay,
-			LinkAccessMaxNr: subdomainCfg.LinkAccessMaxNr,
-			MaxURLSize:      config.MaxURLSize,
-			MaxTextSize:     config.MaxTextSize,
-			CSRFToken:       csrfToken,
-		}
-
-		if err := indexTmpl.Execute(w, pageVars); err != nil {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute index template: "+err.Error())
-			return
-		}
-		logOK(r, http.StatusOK)
-		return
-	}
 
 	// verify that key only consists of valid characters
 	if !validate(key) {
