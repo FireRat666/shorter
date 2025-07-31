@@ -90,9 +90,10 @@ type Session struct {
 
 // APIKey represents a user's API key in the database.
 type APIKey struct {
-	Token     string
-	UserID    string
-	CreatedAt time.Time
+	Token       string
+	UserID      string
+	Description string
+	CreatedAt   time.Time
 }
 
 type linkCreatedPageVars struct {

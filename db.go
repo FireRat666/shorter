@@ -120,7 +120,8 @@ func setupDB(databaseURL string) error {
 	CREATE TABLE IF NOT EXISTS api_keys (
 		token TEXT PRIMARY KEY,
 		user_id TEXT NOT NULL,
-		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		description TEXT
 	);`
 	if _, err = db.ExecContext(ctx, schemaAPIKeys); err != nil {
 		return fmt.Errorf("failed to create api_keys schema: %w", err)
@@ -146,6 +147,9 @@ func setupDB(databaseURL string) error {
 		return err
 	}
 	if err := runSchemaMigration(ctx, "links", "created_by", "TEXT"); err != nil {
+		return err
+	}
+	if err := runSchemaMigration(ctx, "api_keys", "description", "TEXT"); err != nil {
 		return err
 	}
 	if err := runSchemaMigration(ctx, "sessions", "csrf_token", "TEXT NOT NULL DEFAULT ''"); err != nil {
@@ -1105,19 +1109,20 @@ func getAPIKeyCountForUser(ctx context.Context, userID, searchQuery string) (int
 }
 
 // createAPIKey generates a new API key for a user and stores it in the database.
-func createAPIKey(ctx context.Context, userID string) (*APIKey, error) {
+func createAPIKey(ctx context.Context, userID, description string) (*APIKey, error) {
 	token, err := generateSessionToken() // We can reuse the same secure token generator.
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate API key token: %w", err)
 	}
 
 	apiKey := &APIKey{
-		Token:  token,
-		UserID: userID,
+		Token:       token,
+		UserID:      userID,
+		Description: description,
 	}
 
-	query := `INSERT INTO api_keys (token, user_id) VALUES ($1, $2);`
-	_, err = db.ExecContext(ctx, query, apiKey.Token, apiKey.UserID)
+	query := `INSERT INTO api_keys (token, user_id, description) VALUES ($1, $2, $3);`
+	_, err = db.ExecContext(ctx, query, apiKey.Token, apiKey.UserID, apiKey.Description)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert API key into database: %w", err)
 	}
@@ -1128,7 +1133,7 @@ func createAPIKey(ctx context.Context, userID string) (*APIKey, error) {
 // getAPIKeysForUser retrieves all API keys associated with a specific user.
 func getAPIKeysForUser(ctx context.Context, userID, searchQuery string, limit, offset int) ([]APIKey, error) {
 	args := []interface{}{userID}
-	query := `SELECT token, user_id, created_at FROM api_keys WHERE user_id = $1`
+	query := `SELECT token, user_id, created_at, COALESCE(description, '') FROM api_keys WHERE user_id = $1`
 
 	if searchQuery != "" {
 		query += ` AND token ILIKE $2`
@@ -1147,7 +1152,7 @@ func getAPIKeysForUser(ctx context.Context, userID, searchQuery string, limit, o
 	var keys []APIKey
 	for rows.Next() {
 		var key APIKey
-		if err := rows.Scan(&key.Token, &key.UserID, &key.CreatedAt); err != nil {
+		if err := rows.Scan(&key.Token, &key.UserID, &key.CreatedAt, &key.Description); err != nil {
 			return nil, fmt.Errorf("failed to scan API key row: %w", err)
 		}
 		keys = append(keys, key)
@@ -1165,9 +1170,9 @@ func deleteAPIKey(ctx context.Context, token string) error {
 // getAPIKeyByToken retrieves a user's API key from the database by the token string.
 func getAPIKeyByToken(ctx context.Context, token string) (*APIKey, error) {
 	apiKey := &APIKey{}
-	query := `SELECT token, user_id, created_at FROM api_keys WHERE token = $1;`
+	query := `SELECT token, user_id, created_at, COALESCE(description, '') FROM api_keys WHERE token = $1;`
 
-	err := db.QueryRowContext(ctx, query, token).Scan(&apiKey.Token, &apiKey.UserID, &apiKey.CreatedAt)
+	err := db.QueryRowContext(ctx, query, token).Scan(&apiKey.Token, &apiKey.UserID, &apiKey.CreatedAt, &apiKey.Description)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // No key found, not a fatal error.

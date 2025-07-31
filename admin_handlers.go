@@ -1060,7 +1060,8 @@ func handleAdminAPIKeysPage(w http.ResponseWriter, r *http.Request) {
 
 			switch r.FormValue("action") {
 			case "generate":
-				newKey, err := createAPIKey(r.Context(), userID)
+				description := r.FormValue("description")
+				newKey, err := createAPIKey(r.Context(), userID, description)
 				if err != nil {
 					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate new API key: "+err.Error())
 					return

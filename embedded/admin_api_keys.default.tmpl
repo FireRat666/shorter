@@ -35,6 +35,7 @@
                     <thead>
                         <tr>
                             <th>Key (first 8 characters)</th>
+                            <th>Description</th>
                             <th>Created At</th>
                             <th>Delete</th>
                         </tr>
@@ -43,6 +44,7 @@
                         {{range .APIKeys}}
                         <tr>
                             <td><code>{{.Token | printf "%.8s"}}...</code></td>
+                            <td>{{.Description}}</td>
                             <td>{{.CreatedAt.Format "2006-01-02 15:04 MST"}}</td>
                             <td>
                                 <form method="POST" action="/admin/api-keys">
@@ -75,6 +77,8 @@
             <form class="admin-form" method="POST" action="/admin/api-keys">
                 <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <input type="hidden" name="action" value="generate">
+                <label for="description">Description:</label>
+                <input type="text" id="description" name="description" class="inputbox" placeholder="e.g., 'CI/CD Pipeline Key'">
                 <input type="submit" value="Generate New API Key" class="admin-submit-button">
             </form>
         </div>
