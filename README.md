@@ -22,7 +22,8 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
     *   **Subdomain Management**: Create, delete, and configure settings for multiple domains from a single interface.
     *   **Per-Domain Configuration**: Override default settings for link timeouts, display values, and usage limits on a per-subdomain basis.
     *   **"Remember Me"**: Stay logged into the admin panel for an extended period.
-    *   **Link Management**: View click counts, edit all link properties (destination, expiration, usage limits, password), and perform bulk deletions of links.
+    *   **Two-Factor Authentication (2FA)**: Secure the admin account with Time-based One-Time Passwords (TOTP) from an authenticator app.
+    *   **Link Management**: A paginated and searchable interface to view, edit, and perform bulk deletions of links for each domain.
 *   **Advanced Analytics**: A dedicated statistics page provides a comprehensive overview of site activity. All sections load on-demand for a fast user experience and feature:
     *   Overall site-wide totals for active links and clicks.
     *   Recent activity (links created, expired, clicks) over various timeframes.
@@ -143,6 +144,32 @@ In your Web Service's "Environment" tab, add the following environment variables
         3.  Run the script from your terminal: `go run hash.go "my-super-secret-password"`
         4.  Copy the output hash and use it as the value for this environment variable.
 
+*   `ADMIN_TOTP_ENABLED` & `ADMIN_TOTP_SECRET` (Optional):
+    *   **Value**: To enable 2FA, set `ADMIN_TOTP_ENABLED` to `true` and provide a secret for `ADMIN_TOTP_SECRET`.
+    *   **How to Generate a Secret**:
+        1.  Create a temporary file named `generatesecret.go`.
+        2.  Paste the following Go code into it:
+            ```go
+            package main
+
+            import (
+                "crypto/rand"
+                "encoding/base32"
+                "fmt"
+                "log"
+            )
+
+            func main() {
+                secret := make([]byte, 20)
+                if _, err := rand.Read(secret); err != nil {
+                    log.Fatalln("Error generating random secret:", err)
+                }
+                fmt.Println(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(secret))
+            }
+            ```
+        3.  Run the script from your terminal: `go run generatesecret.go`
+        4.  Copy the output secret (e.g., `JBSWY3DPEHPK3PXP...`) and use it as the value for this environment variable.
+
 Render will automatically set the `PORT` environment variable, which the application is configured to use.
 
 ### 5. Deploy
@@ -202,7 +229,6 @@ curl -X POST "https://shorter.example.com/api/v1/links" \
 ```
 
 ## Future Ideas
-*   **Two-Factor Authentication (2FA)**: Enhance admin panel security by requiring a second factor (e.g., TOTP) for login.
 *   **Abuse Reporting**: Add a form, protected by a captcha, for users to report links that violate the Terms of Service.
 *   **Data Visualization**: Add charts to the statistics page to visualize recent activity.
 

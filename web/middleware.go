@@ -36,7 +36,7 @@ func CspAdminMiddleware(next http.Handler) http.Handler {
 
 		// Define the Content Security Policy, including the nonce for scripts.
 		csp := fmt.Sprintf(
-			"default-src 'self'; style-src 'self'; script-src 'self' 'nonce-%s'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; report-uri /csp-report;",
+			"default-src 'self'; style-src 'self'; script-src 'self' 'nonce-%s' https://cdn.jsdelivr.net; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; report-uri /csp-report;",
 			nonce,
 		)
 		w.Header().Set("Content-Security-Policy", csp)

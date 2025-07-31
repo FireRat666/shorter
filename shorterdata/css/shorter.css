@@ -462,3 +462,10 @@ select.is-overridden {
     padding: 0.75em 1.5em; /* Match input box height */
     text-decoration: none;
 }
+
+.chart-container {
+    position: relative;
+    height: 40vh;
+    width: 80vw;
+    margin-bottom: 2em;
+}

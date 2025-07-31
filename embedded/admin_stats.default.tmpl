@@ -3,6 +3,7 @@
 <head>
     <meta name="color-scheme" content="dark">
     <link rel="stylesheet" type="text/css" href="/shorter.css" integrity="{{.CssSRIHash}}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" integrity="sha384-JUh163oCRItcbPme8pYnROHQMC6fNKTBWtRG3I3I0erJkzNgL7uxKlNwcrcFKeqF" crossorigin="anonymous"></script>
     <title>Site Statistics</title>
 </head>
 <body>
@@ -82,8 +83,49 @@
                     .catch(error => {
                         console.error('Error loading stats:', error);
                         container.innerHTML = `<p class="error">Failed to load data. Please check the console for details.</p>`;
+                    })
+                    .finally(() => {
+                        // Special case for the recent activity section to load the chart.
+                        if (buttonId === 'load-recent-activity') {
+                            loadActivityChart();
+                        }
                     });
             });
+        }
+
+        function loadActivityChart() {
+            fetch('/admin/stats/activity-chart-data')
+                .then(response => response.json())
+                .then(data => {
+                    const ctx = document.getElementById('activityChart').getContext('2d');
+                    new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: data.labels,
+                            datasets: [{
+                                label: 'Links Created',
+                                data: data.linksCreated,
+                                borderColor: 'rgb(75, 192, 192)',
+                                tension: 0.1
+                            }, {
+                                label: 'Clicks',
+                                data: data.clicks,
+                                borderColor: 'rgb(255, 99, 132)',
+                                tension: 0.1
+                            }]
+                        },
+                        options: {
+                            scales: {
+                                y: {
+                                    beginAtZero: true
+                                }
+                            }
+                        }
+                    });
+                })
+                .catch(error => {
+                    console.error('Error loading chart data:', error);
+                });
         }
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -144,8 +186,6 @@
                     }); // End of fetch chain
             }); // End of loadDomainStatsBtn event listener
 
-        });
-
         // Custom logic for the paginated Top Links section
         const topLinksContainer = document.getElementById('top-links-container');
         const loadTopLinksBtn = document.getElementById('load-top-links');
@@ -172,6 +212,7 @@
                 fetchTopLinks(page);
             }
         });
+    });
     </script>
 </body>
 </html>

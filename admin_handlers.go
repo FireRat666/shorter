@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/base32"
+	"encoding/json"
 	"fmt"
 	"image/png"
 	"math"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/FireRat666/shorter/web"
+	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -38,6 +41,7 @@ func handleAdminRoutes(mux *http.ServeMux) {
 	adminRouter.HandleFunc("/stats/overall", sessionAuth(adminStatsOverallHandler))
 	adminRouter.HandleFunc("/stats/top-links", sessionAuth(adminStatsTopLinksHandler))
 	adminRouter.HandleFunc("/stats/recent-activity", sessionAuth(adminStatsRecentActivityHandler))
+	adminRouter.HandleFunc("/stats/activity-chart-data", sessionAuth(adminStatsActivityChartDataHandler))
 	adminRouter.HandleFunc("/security/qr", sessionAuth(handleAdminSecurityQR))
 	adminRouter.HandleFunc("/stats/creator-stats", sessionAuth(adminStatsCreatorStatsHandler))
 	adminRouter.HandleFunc("/stats/domain-list", sessionAuth(adminStatsDomainListHandler))
@@ -196,11 +200,19 @@ func handleAdminSecurityQR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The secret in the config is a Base32 string. We must decode it to raw bytes for the library.
+	secretBytes, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(config.Admin.TOTPSecret)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to decode TOTP secret: "+err.Error())
+		return
+	}
+
 	// Generate a TOTP key object from the secret.
 	key, err := totp.Generate(totp.GenerateOpts{
 		Issuer:      config.PrimaryDomain,
 		AccountName: config.Admin.User,
-		Secret:      []byte(config.Admin.TOTPSecret),
+		Secret:      secretBytes,
+		Algorithm:   otp.AlgorithmSHA1, // Explicitly set the standard algorithm for clarity.
 	})
 	if err != nil {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate TOTP key for QR code: "+err.Error())
@@ -372,6 +384,21 @@ func adminStatsRecentActivityHandler(w http.ResponseWriter, r *http.Request) {
 	if err := tmpl.Execute(w, data); err != nil {
 		slogger.Error("Unable to execute admin_stats_recent_activity.partial template", "error", err)
 		http.Error(w, "Failed to render template.", http.StatusInternalServerError)
+	}
+}
+
+// adminStatsActivityChartDataHandler serves recent activity data formatted for Chart.js.
+func adminStatsActivityChartDataHandler(w http.ResponseWriter, r *http.Request) {
+	chartData, err := getChartData(r.Context())
+	if err != nil {
+		slogger.Error("Failed to get chart data", "error", err)
+		http.Error(w, "Failed to load chart data.", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(chartData); err != nil {
+		slogger.Error("Failed to encode chart data to JSON", "error", err)
 	}
 }
 

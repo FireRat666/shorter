@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // PostgreSQL driver for database/sql
@@ -535,6 +536,82 @@ func getOverallStats(ctx context.Context) (*LinkStats, error) {
 	}
 
 	return stats, nil
+}
+
+// getChartData retrieves link creation and click data for the last 7 days,
+// formatted for use with Chart.js.
+func getChartData(ctx context.Context) (map[string]interface{}, error) {
+	// Generate labels for the last 7 days (e.g., "Jul 25", "Jul 26", ...)
+	labels := make([]string, 7)
+	now := time.Now()
+	for i := 0; i < 7; i++ {
+		labels[i] = now.AddDate(0, 0, -6+i).Format("Jan 2")
+	}
+
+	// Initialize maps to hold the data, with dates as keys.
+	linksCreated := make(map[string]int)
+	clicks := make(map[string]int)
+
+	// Query for links created in the last 7 days, grouped by day.
+	queryLinks := `
+		SELECT TO_CHAR(created_at, 'Mon DD'), COUNT(*)
+		FROM links
+		WHERE created_at >= $1
+		GROUP BY TO_CHAR(created_at, 'Mon DD');`
+
+	sevenDaysAgo := now.AddDate(0, 0, -7)
+	rowsLinks, err := db.QueryContext(ctx, queryLinks, sevenDaysAgo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query link creation chart data: %w", err)
+	}
+	defer rowsLinks.Close()
+	for rowsLinks.Next() {
+		var day string
+		var count int
+		if err := rowsLinks.Scan(&day, &count); err != nil {
+			return nil, err
+		}
+		linksCreated[strings.Replace(day, "  ", " ", -1)] = count // "Jul  2" -> "Jul 2"
+	}
+
+	// Query for clicks in the last 7 days, grouped by day.
+	queryClicks := `
+		SELECT TO_CHAR(clicked_at, 'Mon DD'), COUNT(*)
+		FROM clicks
+		WHERE clicked_at >= $1
+		GROUP BY TO_CHAR(clicked_at, 'Mon DD');`
+	rowsClicks, err := db.QueryContext(ctx, queryClicks, sevenDaysAgo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query click chart data: %w", err)
+	}
+	defer rowsClicks.Close()
+	for rowsClicks.Next() {
+		var day string
+		var count int
+		if err := rowsClicks.Scan(&day, &count); err != nil {
+			return nil, err
+		}
+		clicks[strings.Replace(day, "  ", " ", -1)] = count
+	}
+
+	// Assemble the final data structure.
+	data := map[string]interface{}{
+		"labels":       labels,
+		"linksCreated": mapDateDataToSlice(labels, linksCreated),
+		"clicks":       mapDateDataToSlice(labels, clicks),
+	}
+	return data, nil
+}
+
+// mapDateDataToSlice is a helper to ensure chart data aligns with labels.
+func mapDateDataToSlice(labels []string, dataMap map[string]int) []int {
+	result := make([]int, len(labels))
+	for i, label := range labels {
+		if val, ok := dataMap[label]; ok {
+			result[i] = val
+		}
+	}
+	return result
 }
 
 // getLinkStats retrieves a comprehensive set of statistics about link creation and usage.
