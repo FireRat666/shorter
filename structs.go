@@ -80,6 +80,7 @@ type Link struct {
 type Session struct {
 	Token     string
 	UserID    string
+	CSRFToken string
 	ExpiresAt time.Time
 }
 
@@ -122,6 +123,7 @@ type IndexPageVars struct {
 	LinkAccessMaxNr int
 	MaxURLSize      int
 	MaxTextSize     int
+	CSRFToken       string
 }
 
 // errorPageVars holds the data needed to render a generic error page.
@@ -135,12 +137,14 @@ type errorPageVars struct {
 type loginPageVars struct {
 	CssSRIHash string
 	Error      string
+	CSRFToken  string
 }
 
 // passwordPromptPageVars holds data for the password prompt page.
 type passwordPromptPageVars struct {
 	Key        string
 	Error      string
+	CSRFToken  string
 	CssSRIHash string
 }
 
@@ -154,6 +158,7 @@ type adminPageVars struct {
 	AdminJsSRIHash      string
 	TotalLinks          int
 	TotalClicks         int
+	CSRFToken           string
 }
 
 // LinkStats holds a comprehensive set of statistics for the analytics page.
@@ -182,6 +187,7 @@ type adminEditPageVars struct {
 	Links          []Link
 	CssSRIHash     string
 	AdminJsSRIHash string
+	CSRFToken      string
 }
 
 // adminEditStaticLinkPageVars holds the data for the static link edit page.
@@ -189,6 +195,7 @@ type adminEditStaticLinkPageVars struct {
 	Domain      string
 	Key         string
 	Destination string
+	CSRFToken   string
 	CssSRIHash  string
 }
 
@@ -196,6 +203,7 @@ type adminEditStaticLinkPageVars struct {
 type adminEditLinkPageVars struct {
 	Link       Link
 	DataString string // The link's data, decompressed if necessary.
+	CSRFToken  string
 	CssSRIHash string
 }
 

@@ -37,7 +37,7 @@ func handleRoot(mux *http.ServeMux) {
 		case http.MethodPost:
 			// If the POST is to the root path, it's a new link creation.
 			if r.URL.Path == "/" {
-				handlePOST(w, r)
+				csrfProtect(handlePOST)(w, r) // Protect link creation
 			} else {
 				// Otherwise, it's likely a password submission for an existing link.
 				handleGET(w, r)
@@ -240,6 +240,84 @@ func sessionAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// getOrSetCSRFToken ensures a CSRF token exists for the current user, creating one if necessary.
+// It prioritizes the session-bound token for logged-in users and falls back to a cookie
+// for anonymous users. It returns the token.
+func getOrSetCSRFToken(w http.ResponseWriter, r *http.Request) string {
+	// 1. Check for an existing session first. A logged-in user's CSRF token is bound to their session.
+	sessionCookie, err := r.Cookie("session_token")
+	if err == nil {
+		session, _ := getSessionByToken(r.Context(), sessionCookie.Value)
+		if session != nil && session.CSRFToken != "" {
+			return session.CSRFToken
+		}
+	}
+
+	// 2. If no session, check for a standalone CSRF cookie for anonymous users.
+	csrfCookie, err := r.Cookie("csrf_token")
+	if err == nil && csrfCookie.Value != "" {
+		return csrfCookie.Value
+	}
+
+	// 3. If no token exists anywhere, generate a new one.
+	token, err := generateSessionToken() // Reusing the secure token generator
+	if err != nil {
+		slogger.Error("Failed to generate CSRF token for anonymous user", "error", err)
+		return "" // The CSRF check will fail later, which is the safe default.
+	}
+
+	// 4. Set the new token in a cookie for the anonymous user.
+	http.SetCookie(w, &http.Cookie{
+		Name:     "csrf_token",
+		Value:    token,
+		Expires:  time.Now().Add(24 * time.Hour), // Give it a reasonable lifetime.
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		Path:     "/",
+	})
+
+	return token
+}
+
+// csrfProtect is a middleware that protects against CSRF attacks.
+// It should be used on any handler that processes a state-changing POST request.
+func csrfProtect(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// This middleware should only be applied to POST requests.
+		if r.Method != http.MethodPost {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Determine the expected token.
+		var expectedToken string
+		// Prefer the session-bound token if the user is logged in.
+		sessionCookie, err := r.Cookie("session_token")
+		if err == nil {
+			session, _ := getSessionByToken(r.Context(), sessionCookie.Value)
+			if session != nil {
+				expectedToken = session.CSRFToken
+			}
+		}
+
+		// If no session token, fall back to the anonymous CSRF cookie.
+		if expectedToken == "" {
+			csrfCookie, err := r.Cookie("csrf_token")
+			if err == nil {
+				expectedToken = csrfCookie.Value
+			}
+		}
+
+		if expectedToken == "" || r.FormValue("csrf_token") != expectedToken {
+			logErrors(w, r, "Forbidden", http.StatusForbidden, "CSRF token mismatch or missing")
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	}
+}
+
 // handleAdminRoutes sets up a sub-router for all admin-related endpoints.
 // It applies the basicAuth middleware to each handler and then wraps the
 // entire sub-router with the CSP middleware for enhanced security.
@@ -315,14 +393,19 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 			logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Admin form parse error: "+err.Error())
 			return
 		}
-		switch r.FormValue("action") {
-		case "create":
-			handleAdminCreateSubdomain(w, r)
-		case "delete":
-			handleAdminDeleteSubdomain(w, r)
-		default:
-			logErrors(w, r, "Invalid admin action.", http.StatusBadRequest, "Unknown admin action submitted")
-		}
+		action := r.FormValue("action")
+		// Wrap all state-changing actions in CSRF protection.
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch action {
+			case "create":
+				handleAdminCreateSubdomain(w, r)
+			case "delete":
+				handleAdminDeleteSubdomain(w, r)
+			default:
+				logErrors(w, r, "Invalid admin action.", http.StatusBadRequest, "Unknown admin action submitted")
+			}
+		})
+		csrfProtect(handler)(w, r)
 		return
 	}
 
@@ -332,6 +415,8 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin template")
 		return
 	}
+
+	csrfToken := getOrSetCSRFToken(w, r)
 
 	// Create a map for display that explicitly excludes the primary domain.
 	displaySubdomains := make(map[string]SubdomainConfig)
@@ -362,6 +447,7 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 		AdminJsSRIHash:      adminJsSRIHash,
 		TotalLinks:          len(allLinks),
 		TotalClicks:         totalClicks,
+		CSRFToken:           csrfToken,
 	}
 
 	if err := adminTmpl.Execute(w, pageVars); err != nil {
@@ -518,6 +604,8 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 			AdminJsSRIHash: adminJsSRIHash,
 		}
 
+		pageVars.CSRFToken = getOrSetCSRFToken(w, r)
+
 		addHeaders(w, r)
 		if err := editTmpl.Execute(w, pageVars); err != nil {
 			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_edit template: "+err.Error())
@@ -536,18 +624,22 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		switch r.FormValue("action") {
-		case "update_config":
-			handleAdminUpdateConfig(w, r, domain)
-		case "add_static_link":
-			handleAdminAddStaticLink(w, r, domain)
-		case "delete_static_link":
-			handleAdminDeleteStaticLink(w, r, domain)
-		case "delete_multiple_dynamic_links":
-			handleAdminDeleteMultipleDynamicLinks(w, r, domain)
-		default:
-			logErrors(w, r, "Invalid admin action.", http.StatusBadRequest, "Unknown admin edit action submitted")
-		}
+		action := r.FormValue("action")
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch action {
+			case "update_config":
+				handleAdminUpdateConfig(w, r, domain)
+			case "add_static_link":
+				handleAdminAddStaticLink(w, r, domain)
+			case "delete_static_link":
+				handleAdminDeleteStaticLink(w, r, domain)
+			case "delete_multiple_dynamic_links":
+				handleAdminDeleteMultipleDynamicLinks(w, r, domain)
+			default:
+				logErrors(w, r, "Invalid admin action.", http.StatusBadRequest, "Unknown admin edit action submitted")
+			}
+		})
+		csrfProtect(handler)(w, r)
 
 	default:
 		addHeaders(w, r)
@@ -693,6 +785,8 @@ func handleAdminEditStaticLinkPage(w http.ResponseWriter, r *http.Request) {
 			CssSRIHash:  cssSRIHash,
 		}
 
+		pageVars.CSRFToken = getOrSetCSRFToken(w, r)
+
 		addHeaders(w, r)
 		if err := editTmpl.Execute(w, pageVars); err != nil {
 			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_edit_static_link template: "+err.Error())
@@ -704,22 +798,25 @@ func handleAdminEditStaticLinkPage(w http.ResponseWriter, r *http.Request) {
 			logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Admin edit static link form parse error: "+err.Error())
 			return
 		}
-		newDestURL := r.FormValue("new_static_url")
-		if !strings.HasPrefix(newDestURL, "http://") && !strings.HasPrefix(newDestURL, "https://") {
-			newDestURL = "https://" + newDestURL
-		}
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			newDestURL := r.FormValue("new_static_url")
+			if !strings.HasPrefix(newDestURL, "http://") && !strings.HasPrefix(newDestURL, "https://") {
+				newDestURL = "https://" + newDestURL
+			}
 
-		// Update the destination URL and save the entire subdomain config back to the DB.
-		subdomainCfg.StaticLinks[key] = newDestURL
-		config.Subdomains[domain] = subdomainCfg // Update in-memory config
+			// Update the destination URL and save the entire subdomain config back to the DB.
+			subdomainCfg.StaticLinks[key] = newDestURL
+			config.Subdomains[domain] = subdomainCfg // Update in-memory config
 
-		if err := saveSubdomainConfigToDB(r.Context(), domain, subdomainCfg); err != nil {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to update static link: "+err.Error())
-			return
-		}
+			if err := saveSubdomainConfigToDB(r.Context(), domain, subdomainCfg); err != nil {
+				logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to update static link: "+err.Error())
+				return
+			}
 
-		// Redirect back to the main edit page for the domain.
-		http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
+			// Redirect back to the main edit page for the domain.
+			http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
+		})
+		csrfProtect(handler)(w, r)
 	}
 }
 
@@ -737,7 +834,10 @@ func handleAdminEditLinkPage(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		handleAdminEditLinkPageGET(w, r, domain, key)
 	case http.MethodPost:
-		handleAdminEditLinkPagePOST(w, r, domain, key)
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handleAdminEditLinkPagePOST(w, r, domain, key)
+		})
+		csrfProtect(handler)(w, r)
 	default:
 		addHeaders(w, r)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -784,6 +884,8 @@ func handleAdminEditLinkPageGET(w http.ResponseWriter, r *http.Request, domain, 
 		DataString: dataString,
 		CssSRIHash: cssSRIHash,
 	}
+
+	pageVars.CSRFToken = getOrSetCSRFToken(w, r)
 
 	addHeaders(w, r)
 	if err := editTmpl.Execute(w, pageVars); err != nil {
@@ -965,9 +1067,17 @@ func handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	csrfToken := getOrSetCSRFToken(w, r)
+
 	if r.Method == http.MethodPost {
 		if err := r.ParseForm(); err != nil {
 			logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Login form parse error: "+err.Error())
+			return
+		}
+
+		// Protect the login form itself from CSRF.
+		if r.FormValue("csrf_token") != csrfToken {
+			logErrors(w, r, "Forbidden", http.StatusForbidden, "CSRF token mismatch on login form")
 			return
 		}
 
@@ -1037,6 +1147,7 @@ func handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	pageVars := loginPageVars{
 		CssSRIHash: cssSRIHash,
 		Error:      r.URL.Query().Get("error"),
+		CSRFToken:  csrfToken,
 	}
 
 	if err := loginTmpl.Execute(w, pageVars); err != nil {
@@ -1122,6 +1233,8 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		csrfToken := getOrSetCSRFToken(w, r)
+
 		indexTmpl, ok := templateMap["index"]
 		if !ok || indexTmpl == nil {
 			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load index template")
@@ -1137,6 +1250,7 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 			LinkAccessMaxNr: subdomainCfg.LinkAccessMaxNr,
 			MaxURLSize:      config.MaxURLSize,
 			MaxTextSize:     config.MaxTextSize,
+			CSRFToken:       csrfToken,
 		}
 
 		if err := indexTmpl.Execute(w, pageVars); err != nil {

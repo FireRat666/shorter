@@ -86,6 +86,7 @@
         <div class="tos">
             <h2>Create New Subdomain</h2>
             <form class="admin-form" method="POST" action="/admin/">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <input type="hidden" name="action" value="create">
                 <label for="subdomain">Subdomain Name:</label>
                 <input type="text" id="subdomain" name="subdomain" class="inputbox" placeholder="user1.your-app.com" required>

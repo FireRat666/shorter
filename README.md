@@ -19,14 +19,14 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
     *   **Subdomain Management**: Create, delete, and configure settings for multiple domains from a single interface.
     *   **Per-Domain Configuration**: Override default settings for link timeouts, display values, and usage limits on a per-subdomain basis.
     *   **"Remember Me"**: Stay logged into the admin panel for an extended period.
-    *   **Link Management**: View click counts, and delete active dynamic links and manage permanent static links for each domain.
+    *   **Link Management**: View click counts, edit properties (destination, expiration, usage limits, password), and delete active dynamic links. Manage permanent static links for each domain.
 *   **Persistent Storage**: Uses a PostgreSQL backend to store all links, sessions, and configurations.
 *   **Link Analytics**: A dedicated statistics page provides an overview of site-wide activity, including total links, total clicks, and recent activity over various timeframes.
 *   **Automatic Database Maintenance**: A background job periodically cleans up expired links and sessions, and an intelligent "just-in-time" cleanup mechanism reclaims keys from expired links during normal use.
 *   **Malware Protection**: Integrated with DNS-based blocklists (DNSBL) to prevent shortening of malicious URLs, using the service from [blocklist.de](https://www.blocklist.de/en/rbldns.html).
 *   **Customizable Theming**: Override the default HTML templates with your own to match your brand.
 *   **Deployment Ready**: Designed for modern deployment platforms like Render, with full support for configuration via environment variables.
-*   **Secure by Default**: Implements a strict Content Security Policy (CSP) and other security headers to protect users.
+*   **Secure by Default**: Implements a strict Content Security Policy (CSP), CSRF protection on all forms, and other security headers to protect users.
 *   **Resource Management**: Configurable size limits for URL and text submissions to prevent abuse and manage database size.
 
 ## Installation
@@ -131,7 +131,6 @@ Render will automatically set the `PORT` environment variable, which the applica
 With the configuration and environment variables set, you can trigger your first deployment. The application will start, connect to the database, and be available at your Render URL.
 
 ## Future Ideas
-*   **Editing Existing Links**: Add the ability for an admin to change the destination URL of an existing short link.
 *   **Two-Factor Authentication (2FA)**: Enhance admin panel security by requiring a second factor (e.g., TOTP) for login.
 *   **Public API**: Create a RESTful API for programmatic link creation and management, protected by API keys.
 *   **Abuse Reporting**: Add a form, protected by a captcha, for users to report links that violate the Terms of Service.

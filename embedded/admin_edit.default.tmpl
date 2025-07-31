@@ -13,6 +13,7 @@
         </div>
         <div class="tos">
             <form class="admin-form" method="POST" action="/admin/edit?domain={{.Domain}}">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <input type="hidden" name="action" value="update_config">
                 <input type="hidden" name="subdomain" value="{{.Domain}}">
 
@@ -76,6 +77,7 @@
             {{end}}
             <h3 class="section-subtitle">Add New Static Link</h3>
             <form class="admin-form" method="POST" action="/admin/edit?domain={{.Domain}}">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <input type="hidden" name="action" value="add_static_link">
                 <label for="new_static_key">Key:</label>
                 <input type="text" id="new_static_key" name="new_static_key" class="inputbox" required>
@@ -88,6 +90,7 @@
         <div class="tos">
             <h2>Active Links &amp; Text Dumps</h2>
             <form method="POST" action="/admin/edit?domain={{.Domain}}">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <input type="hidden" name="action" value="delete_multiple_dynamic_links">
                 {{if .Links}}
                     <table>

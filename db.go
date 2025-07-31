@@ -69,6 +69,7 @@ func setupDB(databaseURL string) error {
 	CREATE TABLE IF NOT EXISTS sessions (
 		token TEXT PRIMARY KEY,
 		user_id TEXT NOT NULL,
+		csrf_token TEXT NOT NULL,
 		expires_at TIMESTAMPTZ NOT NULL
 	);`
 	if _, err = db.ExecContext(ctx, schemaSessions); err != nil {
@@ -574,16 +575,22 @@ func createSession(ctx context.Context, userID string, duration time.Duration) (
 		return nil, fmt.Errorf("failed to generate session token: %w", err)
 	}
 
+	csrfToken, err := generateSessionToken() // We can reuse the same secure token generator.
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate CSRF token: %w", err)
+	}
+
 	expiresAt := time.Now().Add(duration)
 
 	session := &Session{
 		Token:     token,
 		UserID:    userID,
+		CSRFToken: csrfToken,
 		ExpiresAt: expiresAt,
 	}
 
-	query := `INSERT INTO sessions (token, user_id, expires_at) VALUES ($1, $2, $3);`
-	_, err = db.ExecContext(ctx, query, session.Token, session.UserID, session.ExpiresAt)
+	query := `INSERT INTO sessions (token, user_id, csrf_token, expires_at) VALUES ($1, $2, $3, $4);`
+	_, err = db.ExecContext(ctx, query, session.Token, session.UserID, session.CSRFToken, session.ExpiresAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert session into database: %w", err)
 	}
@@ -594,9 +601,9 @@ func createSession(ctx context.Context, userID string, duration time.Duration) (
 // getSessionByToken retrieves a session from the database if it exists and has not expired.
 func getSessionByToken(ctx context.Context, token string) (*Session, error) {
 	session := &Session{}
-	query := `SELECT token, user_id, expires_at FROM sessions WHERE token = $1 AND expires_at > NOW();`
+	query := `SELECT token, user_id, csrf_token, expires_at FROM sessions WHERE token = $1 AND expires_at > NOW();`
 
-	err := db.QueryRowContext(ctx, query, token).Scan(&session.Token, &session.UserID, &session.ExpiresAt)
+	err := db.QueryRowContext(ctx, query, token).Scan(&session.Token, &session.UserID, &session.CSRFToken, &session.ExpiresAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil // No session found, not a fatal error.

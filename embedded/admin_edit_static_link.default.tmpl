@@ -13,6 +13,7 @@
         <div class="tos">
             <p>Editing static link '<strong>{{.Key}}</strong>' for domain '<strong>{{.Domain}}</strong>'.</p>
             <form class="admin-form" method="POST" action="/admin/edit_static_link?domain={{.Domain}}&key={{.Key}}">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <label for="new_static_url">New Destination URL:</label>
                 <input type="text" id="new_static_url" name="new_static_url" class="inputbox" value="{{.Destination}}" required>
 

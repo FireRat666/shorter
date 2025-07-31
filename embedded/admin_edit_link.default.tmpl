@@ -13,6 +13,7 @@
         </div>
         <div class="tos">
             <form class="admin-form" method="POST" action="/admin/edit-link?domain={{.Link.Domain}}&key={{.Link.Key}}">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 {{if eq .Link.LinkType "url"}}
                 <label for="destination_url">Destination URL:</label>
                 <input type="text" id="destination_url" name="destination_url" class="inputbox" value="{{.DataString}}" required>
