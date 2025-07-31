@@ -41,6 +41,7 @@ func setupDB(databaseURL string) error {
 		data BYTEA NOT NULL,
 		is_compressed BOOLEAN NOT NULL,
 		password_hash TEXT,
+		created_by TEXT, -- UserID of the creator (admin or API key user)
 		times_allowed INT NOT NULL,
 		times_used INT DEFAULT 0 NOT NULL,
 		expires_at TIMESTAMPTZ NOT NULL,
@@ -50,6 +51,30 @@ func setupDB(databaseURL string) error {
 
 	if _, err = db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
+	}
+
+	// Add an index on the created_by column for performance on the stats page.
+	// CREATE INDEX IF NOT EXISTS is idempotent and safe to run on every startup.
+	schemaLinksIndex := `CREATE INDEX IF NOT EXISTS idx_links_created_by ON links (created_by);`
+	if _, err = db.ExecContext(ctx, schemaLinksIndex); err != nil {
+		return fmt.Errorf("failed to create index on links(created_by): %w", err)
+	}
+
+	// Add additional indexes for stats page performance.
+	// These speed up the "Recent Activity" and "Top 10" sections.
+	schemaLinksCreatedAt := `CREATE INDEX IF NOT EXISTS idx_links_created_at ON links (created_at);`
+	if _, err = db.ExecContext(ctx, schemaLinksCreatedAt); err != nil {
+		return fmt.Errorf("failed to create index on links(created_at): %w", err)
+	}
+
+	schemaLinksExpiresAt := `CREATE INDEX IF NOT EXISTS idx_links_expires_at ON links (expires_at);`
+	if _, err = db.ExecContext(ctx, schemaLinksExpiresAt); err != nil {
+		return fmt.Errorf("failed to create index on links(expires_at): %w", err)
+	}
+
+	schemaLinksTimesUsed := `CREATE INDEX IF NOT EXISTS idx_links_times_used ON links (times_used);`
+	if _, err = db.ExecContext(ctx, schemaLinksTimesUsed); err != nil {
+		return fmt.Errorf("failed to create index on links(times_used): %w", err)
 	}
 
 	// Create the subdomain_configs table if it doesn't already exist.
@@ -100,50 +125,30 @@ func setupDB(databaseURL string) error {
 		return fmt.Errorf("failed to create api_keys schema: %w", err)
 	}
 
+	// Create the expirations table for link analytics.
+	// This table logs when a link is deleted due to expiration.
+	schemaExpirations := `
+	CREATE TABLE IF NOT EXISTS expirations (
+		id BIGSERIAL PRIMARY KEY,
+		link_key TEXT NOT NULL,
+		link_domain TEXT NOT NULL,
+		expired_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+	CREATE INDEX IF NOT EXISTS idx_expirations_expired_at ON expirations (expired_at);`
+	if _, err = db.ExecContext(ctx, schemaExpirations); err != nil {
+		return fmt.Errorf("failed to create expirations schema: %w", err)
+	}
+
 	// --- Schema Migrations ---
 	// This section handles simple, additive schema changes to avoid breaking existing deployments.
-
-	// Migration 1: Add password_hash column to links table if it doesn't exist.
-	var columnExists bool
-	checkColumnQuery := `
-		SELECT EXISTS (
-			SELECT 1
-			FROM information_schema.columns
-			WHERE table_name = 'links' AND column_name = 'password_hash'
-		);`
-	err = db.QueryRowContext(ctx, checkColumnQuery).Scan(&columnExists)
-	if err != nil {
-		return fmt.Errorf("failed to check for password_hash column existence: %w", err)
+	if err := runSchemaMigration(ctx, "links", "password_hash", "TEXT"); err != nil {
+		return err
 	}
-
-	if !columnExists {
-		slogger.Info("Schema migration: adding 'password_hash' column to 'links' table...")
-		alterQuery := `ALTER TABLE links ADD COLUMN password_hash TEXT;`
-		if _, err = db.ExecContext(ctx, alterQuery); err != nil {
-			return fmt.Errorf("failed to apply schema migration for password_hash column: %w", err)
-		}
-		slogger.Info("Schema migration applied successfully.")
+	if err := runSchemaMigration(ctx, "links", "created_by", "TEXT"); err != nil {
+		return err
 	}
-
-	// Migration 2: Add csrf_token column to sessions table if it doesn't exist.
-	checkCSRFColumnQuery := `
-		SELECT EXISTS (
-			SELECT 1
-			FROM information_schema.columns
-			WHERE table_name = 'sessions' AND column_name = 'csrf_token'
-		);`
-	err = db.QueryRowContext(ctx, checkCSRFColumnQuery).Scan(&columnExists)
-	if err != nil {
-		return fmt.Errorf("failed to check for csrf_token column existence: %w", err)
-	}
-
-	if !columnExists {
-		slogger.Info("Schema migration: adding 'csrf_token' column to 'sessions' table...")
-		alterQuery := `ALTER TABLE sessions ADD COLUMN csrf_token TEXT NOT NULL DEFAULT '';`
-		if _, err = db.ExecContext(ctx, alterQuery); err != nil {
-			return fmt.Errorf("failed to apply schema migration for csrf_token column: %w", err)
-		}
-		slogger.Info("Schema migration applied successfully.")
+	if err := runSchemaMigration(ctx, "sessions", "csrf_token", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
 	}
 
 	return nil
@@ -239,20 +244,56 @@ func deleteLinksForDomain(ctx context.Context, domain string) error {
 
 // deleteExpiredLinksFromDB removes all links that have passed their expiration date.
 // This is useful to run at startup to free up keys from expired links.
+// It now also logs these deletions to the expirations table for analytics.
 func deleteExpiredLinksFromDB(ctx context.Context) (int64, error) {
-	query := `DELETE FROM links WHERE expires_at <= NOW();`
-	result, err := db.ExecContext(ctx, query)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, fmt.Errorf("failed to delete expired links: %w", err)
+		return 0, fmt.Errorf("failed to begin transaction for expired link cleanup: %w", err)
+	}
+	defer tx.Rollback()
+
+	// First, select the links that are about to be deleted to log them.
+	querySelect := `SELECT key, domain FROM links WHERE expires_at <= NOW() FOR UPDATE;`
+	rows, err := tx.QueryContext(ctx, querySelect)
+	if err != nil {
+		return 0, fmt.Errorf("failed to select expired links for logging: %w", err)
+	}
+	defer rows.Close()
+
+	var linksToDelete []Link
+	for rows.Next() {
+		var link Link
+		if err := rows.Scan(&link.Key, &link.Domain); err != nil {
+			return 0, fmt.Errorf("failed to scan expired link for logging: %w", err)
+		}
+		linksToDelete = append(linksToDelete, link)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	if len(linksToDelete) == 0 {
+		return 0, nil // Nothing to do.
+	}
+
+	// Log the expiration events before deleting.
+	if err := logExpirationEventsInTx(ctx, tx, linksToDelete); err != nil {
+		return 0, fmt.Errorf("failed to log expired links: %w", err)
+	}
+
+	// Now, delete the links.
+	queryDelete := `DELETE FROM links WHERE expires_at <= NOW();`
+	result, err := tx.ExecContext(ctx, queryDelete)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete expired links after logging: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		// This is less likely, but good to handle.
 		return 0, fmt.Errorf("could not get rows affected after deleting expired links: %w", err)
 	}
 
-	return rowsAffected, nil
+	return rowsAffected, tx.Commit()
 }
 
 // deleteExpiredSessionsFromDB removes all sessions that have passed their expiration date.
@@ -272,10 +313,54 @@ func deleteExpiredSessionsFromDB(ctx context.Context) (int64, error) {
 	return rowsAffected, nil
 }
 
+// deleteOldExpirationLogs removes expiration log entries older than a certain period (e.g., 7 days)
+// to keep the analytics table from growing indefinitely.
+func deleteOldExpirationLogs(ctx context.Context) (int64, error) {
+	// We keep 7 days of expiration data for the stats page.
+	sevenDaysAgo := time.Now().Add(-7 * 24 * time.Hour)
+	query := `DELETE FROM expirations WHERE expired_at < $1;`
+	result, err := db.ExecContext(ctx, query, sevenDaysAgo)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete old expiration logs: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("could not get rows affected after deleting old expiration logs: %w", err)
+	}
+	return rowsAffected, nil
+}
+
+// runSchemaMigration checks if a column exists in a table and adds it if it doesn't.
+// This is a helper to make schema updates robust.
+func runSchemaMigration(ctx context.Context, tableName, columnName, columnType string) error {
+	var exists bool
+	query := `
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_name = $1 AND column_name = $2
+		);`
+	err := db.QueryRowContext(ctx, query, tableName, columnName).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("failed to check for column %s in table %s: %w", columnName, tableName, err)
+	}
+
+	if !exists {
+		slogger.Info("Schema migration: adding column", "table", tableName, "column", columnName)
+		alterQuery := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s;", tableName, columnName, columnType)
+		if _, err := db.ExecContext(ctx, alterQuery); err != nil {
+			return fmt.Errorf("failed to apply schema migration for column %s: %w", columnName, err)
+		}
+		slogger.Info("Schema migration applied successfully.")
+	}
+	return nil
+}
+
 // getLinksForDomain retrieves all active links for a specific domain, ordered by creation date.
 func getLinksForDomain(ctx context.Context, domain string) ([]Link, error) {
 	query := `
-		SELECT key, link_type, times_used, expires_at, password_hash
+		SELECT key, link_type, times_used, expires_at, password_hash, created_by
 		FROM links
 		WHERE domain = $1 AND expires_at > NOW()
 		ORDER BY created_at DESC;`
@@ -296,6 +381,7 @@ func getLinksForDomain(ctx context.Context, domain string) ([]Link, error) {
 			&link.TimesUsed,
 			&link.ExpiresAt,
 			&link.PasswordHash,
+			&link.CreatedBy,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan link row: %w", err)
 		}
@@ -307,7 +393,7 @@ func getLinksForDomain(ctx context.Context, domain string) ([]Link, error) {
 // getAllActiveLinks retrieves all active links from the database.
 func getAllActiveLinks(ctx context.Context) ([]Link, error) {
 	query := `
-		SELECT key, domain, link_type, data, is_compressed, times_allowed, times_used, expires_at, created_at
+		SELECT key, domain, link_type, data, is_compressed, password_hash, created_by, times_allowed, times_used, expires_at, created_at
 		FROM links
 		WHERE expires_at > NOW()
 		ORDER BY created_at DESC;`
@@ -327,6 +413,8 @@ func getAllActiveLinks(ctx context.Context) ([]Link, error) {
 			&link.LinkType,
 			&link.Data,
 			&link.IsCompressed,
+			&link.PasswordHash,
+			&link.CreatedBy,
 			&link.TimesAllowed,
 			&link.TimesUsed,
 			&link.ExpiresAt,
@@ -349,8 +437,21 @@ func deleteLink(ctx context.Context, key, domain string) error {
 	return nil
 }
 
-// getLinkStats retrieves a comprehensive set of statistics about link creation and usage.
-func getLinkStats(ctx context.Context) (*LinkStats, error) {
+// analyzeTables manually triggers a database analysis on key tables.
+// This is useful after large data changes (like startup cleanup or stats reset)
+// to ensure the query planner has up-to-date statistics.
+func analyzeTables(ctx context.Context) {
+	// We analyze the tables that are used for performance-critical estimates.
+	if _, err := db.ExecContext(ctx, `ANALYZE links; ANALYZE clicks;`); err != nil {
+		slogger.Warn("Failed to run ANALYZE on tables", "error", err)
+	} else {
+		slogger.Info("Successfully ran ANALYZE on database tables.")
+	}
+}
+
+// getOverallStats retrieves the main, site-wide statistics for the top of the stats page.
+// It uses fast PostgreSQL estimates for counts on large tables to ensure quick page loads.
+func getOverallStats(ctx context.Context) (*LinkStats, error) {
 	stats := &LinkStats{}
 	var err error
 
@@ -364,16 +465,58 @@ func getLinkStats(ctx context.Context) (*LinkStats, error) {
 		return count, nil
 	}
 
-	// Total Active Links
+	// Total Active Links - This should be fast with the index on expires_at.
 	stats.TotalActiveLinks, err = countQuery(`SELECT COUNT(*) FROM links WHERE expires_at > NOW()`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to count total active links: %w", err)
 	}
 
-	// Total Clicks (from the times_used column for an overall count)
-	err = db.QueryRowContext(ctx, `SELECT COALESCE(SUM(times_used), 0) FROM links`).Scan(&stats.TotalClicks)
-	if err != nil {
-		return nil, fmt.Errorf("failed to sum total clicks: %w", err)
+	// Total Links Created (All-Time) - Use an estimate for performance on large tables.
+	err = db.QueryRowContext(ctx, `SELECT reltuples::bigint FROM pg_class WHERE relname = 'links'`).Scan(&stats.TotalLinksCreated)
+	// If the estimate fails or is negative (meaning the table has not been analyzed), fall back to the accurate count.
+	if err != nil || stats.TotalLinksCreated < 0 {
+		if err != nil {
+			slogger.Warn("Failed to get estimated row count for 'links', falling back to slow COUNT(*)", "error", err)
+		} else {
+			slogger.Info("Estimated row count for 'links' is negative (table not analyzed), falling back to slow COUNT(*)")
+		}
+		stats.TotalLinksCreated, err = countQuery(`SELECT COUNT(*) FROM links`)
+		if err != nil {
+			return nil, fmt.Errorf("failed to count all-time links: %w", err)
+		}
+	}
+
+	// Total Clicks (All-Time) - Use an estimate for performance on the clicks table.
+	err = db.QueryRowContext(ctx, `SELECT reltuples::bigint FROM pg_class WHERE relname = 'clicks'`).Scan(&stats.TotalClicks)
+	// If the estimate fails or is negative (meaning the table has not been analyzed), fall back to the accurate count.
+	if err != nil || stats.TotalClicks < 0 {
+		if err != nil {
+			slogger.Warn("Failed to get estimated row count for 'clicks', falling back to slow COUNT(*)", "error", err)
+		} else {
+			slogger.Info("Estimated row count for 'clicks' is negative (table not analyzed), falling back to slow COUNT(*)")
+		}
+		stats.TotalClicks, err = countQuery(`SELECT COUNT(*) FROM clicks`)
+		if err != nil {
+			return nil, fmt.Errorf("failed to count total clicks from clicks table: %w", err)
+		}
+	}
+
+	return stats, nil
+}
+
+// getLinkStats retrieves a comprehensive set of statistics about link creation and usage.
+func getLinkStats(ctx context.Context) (*LinkStats, error) {
+	stats := &LinkStats{}
+	var err error
+
+	// Helper function to run a single COUNT query.
+	countQuery := func(query string, args ...interface{}) (int, error) {
+		var count int
+		err := db.QueryRowContext(ctx, query, args...).Scan(&count)
+		if err != nil && err != sql.ErrNoRows {
+			return 0, err
+		}
+		return count, nil
 	}
 
 	// Time-based stats
@@ -396,6 +539,20 @@ func getLinkStats(ctx context.Context) (*LinkStats, error) {
 		return nil, err
 	}
 
+	// Links Expired (now from the dedicated expirations table)
+	stats.LinksExpiredLastHour, err = countQuery(`SELECT COUNT(*) FROM expirations WHERE expired_at >= $1`, oneHourAgo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count expired links (1h): %w", err)
+	}
+	stats.LinksExpiredLast24Hours, err = countQuery(`SELECT COUNT(*) FROM expirations WHERE expired_at >= $1`, twentyFourHoursAgo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count expired links (24h): %w", err)
+	}
+	stats.LinksExpiredLast7Days, err = countQuery(`SELECT COUNT(*) FROM expirations WHERE expired_at >= $1`, sevenDaysAgo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count expired links (7d): %w", err)
+	}
+
 	// Clicks Recorded
 	stats.ClicksLastHour, err = countQuery(`SELECT COUNT(*) FROM clicks WHERE clicked_at >= $1`, oneHourAgo)
 	if err != nil {
@@ -413,6 +570,32 @@ func getLinkStats(ctx context.Context) (*LinkStats, error) {
 	return stats, nil
 }
 
+// getCreatorStats aggregates link creation counts by user.
+func getCreatorStats(ctx context.Context) ([]CreatorStats, error) {
+	query := `
+		SELECT COALESCE(created_by, 'Anonymous') as creator, COUNT(*) as link_count
+		FROM links
+		WHERE expires_at > NOW() -- Count only active links
+		GROUP BY creator
+		ORDER BY link_count DESC;`
+
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query creator stats: %w", err)
+	}
+	defer rows.Close()
+
+	var stats []CreatorStats
+	for rows.Next() {
+		var stat CreatorStats
+		if err := rows.Scan(&stat.UserID, &stat.LinkCount); err != nil {
+			return nil, fmt.Errorf("failed to scan creator stat row: %w", err)
+		}
+		stats = append(stats, stat)
+	}
+	return stats, rows.Err()
+}
+
 // errKeyCollision is a sentinel error used to indicate a key collision with an *active* link.
 var errKeyCollision = errors.New("active key collision")
 
@@ -426,14 +609,15 @@ func createLinkInDB(ctx context.Context, link Link) error {
 	// If the existing link is still active, the WHERE condition is false, the UPDATE is
 	// skipped, and zero rows are affected.
 	query := `
-		INSERT INTO links (key, domain, link_type, data, is_compressed, password_hash, times_allowed, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO links (key, domain, link_type, data, is_compressed, password_hash, created_by, times_allowed, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (key, domain) DO UPDATE
 		SET
 			link_type = EXCLUDED.link_type,
 			data = EXCLUDED.data,
 			is_compressed = EXCLUDED.is_compressed,
 			password_hash = EXCLUDED.password_hash,
+			created_by = EXCLUDED.created_by,
 			times_allowed = EXCLUDED.times_allowed,
 			times_used = 0, -- Reset usage count for the new link
 			expires_at = EXCLUDED.expires_at,
@@ -441,7 +625,7 @@ func createLinkInDB(ctx context.Context, link Link) error {
 		WHERE
 			links.expires_at <= NOW() OR (links.times_allowed > 0 AND links.times_used >= links.times_allowed);`
 
-	result, err := db.ExecContext(ctx, query, link.Key, link.Domain, link.LinkType, link.Data, link.IsCompressed, link.PasswordHash, link.TimesAllowed, link.ExpiresAt)
+	result, err := db.ExecContext(ctx, query, link.Key, link.Domain, link.LinkType, link.Data, link.IsCompressed, link.PasswordHash, link.CreatedBy, link.TimesAllowed, link.ExpiresAt)
 	if err != nil {
 		return fmt.Errorf("failed to insert or update link in database: %w", err)
 	}
@@ -478,7 +662,7 @@ func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 	// We will check for expiration in the application logic so we can perform
 	// a "just-in-time" deletion of the expired link.
 	querySelect := `
-		SELECT key, domain, link_type, data, is_compressed, password_hash, times_allowed, times_used, expires_at, created_at
+		SELECT key, domain, link_type, data, is_compressed, password_hash, created_by, times_allowed, times_used, expires_at, created_at
 		FROM links
 		WHERE key = $1 AND domain = $2
 		FOR UPDATE;`
@@ -490,6 +674,7 @@ func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 		&link.Data,
 		&link.IsCompressed,
 		&link.PasswordHash,
+		&link.CreatedBy,
 		&link.TimesAllowed,
 		&link.TimesUsed,
 		&link.ExpiresAt,
@@ -505,16 +690,24 @@ func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 
 	// Check for expiration or overuse in the application logic.
 	if time.Now().After(link.ExpiresAt) || (link.TimesAllowed > 0 && link.TimesUsed >= link.TimesAllowed) {
-		// The link is expired or used up. Delete it now within the same transaction.
+		// The link is expired or used up. Log the expiration event and then delete it, all in the same transaction.
+		if err := logExpirationEventsInTx(ctx, tx, []Link{*link}); err != nil {
+			slogger.Error("Failed to log just-in-time expiration event", "key", key, "domain", domain, "error", err)
+			// Don't block deletion on logging failure, but the defer will rollback the transaction.
+			return nil, nil
+		}
 		deleteQuery := `DELETE FROM links WHERE key = $1 AND domain = $2;`
 		if _, err := tx.ExecContext(ctx, deleteQuery, key, domain); err != nil {
 			// Log the deletion error but still return nil to the user, as the link is invalid.
 			slogger.Error("Failed to perform just-in-time deletion of invalid link", "key", key, "domain", domain, "error", err)
+			return nil, nil // The defer will rollback.
 		} else if slogger != nil {
 			slogger.Info("Performed just-in-time deletion of invalid link", "key", key, "domain", domain)
 		}
-		// We must commit the transaction to save the deletion.
-		tx.Commit()
+		// If we get here, both logging and deletion were successful. Commit the transaction.
+		if err := tx.Commit(); err != nil {
+			slogger.Error("Failed to commit just-in-time deletion transaction", "key", key, "domain", domain, "error", err)
+		}
 		return nil, nil // Return nil as if the link was not found.
 	}
 
@@ -541,58 +734,65 @@ func incrementLinkUsage(ctx context.Context, key, domain string) error {
 	return tx.Commit()
 }
 
-// getLinkDetails retrieves a link's full details from the database by its key and domain,
-// regardless of its expiration or usage status. This is for admin editing purposes.
-func getLinkDetails(ctx context.Context, key, domain string) (*Link, error) {
-	link := &Link{}
-	query := `
-		SELECT key, domain, link_type, data, is_compressed, password_hash, times_allowed, times_used, expires_at, created_at
-		FROM links
-		WHERE key = $1 AND domain = $2;`
-
-	err := db.QueryRowContext(ctx, query, key, domain).Scan(
-		&link.Key,
-		&link.Domain,
-		&link.LinkType,
-		&link.Data,
-		&link.IsCompressed,
-		&link.PasswordHash,
-		&link.TimesAllowed,
-		&link.TimesUsed,
-		&link.ExpiresAt,
-		&link.CreatedAt,
-	)
-
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil // No link found, not an error.
-		}
-		return nil, fmt.Errorf("failed to get link details from database: %w", err)
+// logExpirationEventsInTx logs one or more link expirations to the expirations table for analytics.
+// It requires an existing transaction to be passed in.
+func logExpirationEventsInTx(ctx context.Context, tx *sql.Tx, links []Link) error {
+	if len(links) == 0 {
+		return nil
 	}
-	return link, nil
+
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO expirations (link_key, link_domain) VALUES ($1, $2);`)
+	if err != nil {
+		return fmt.Errorf("failed to prepare expiration log statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, link := range links {
+		if _, err := stmt.ExecContext(ctx, link.Key, link.Domain); err != nil {
+			return fmt.Errorf("failed to execute expiration log statement for link %s: %w", link.Key, err)
+		}
+	}
+
+	return nil
 }
 
-// updateLink updates the details of an existing dynamic link in the database.
-func updateLink(ctx context.Context, link Link) error {
-	query := `
-		UPDATE links SET
-			data = $1,
-			is_compressed = $2,
-			password_hash = $3,
-			times_allowed = $4,
-			expires_at = $5
-		WHERE key = $6 AND domain = $7;`
+// resetAllStatistics performs a hard reset on historical analytics data.
+// It truncates the clicks and expirations tables, resets all link usage counters to zero,
+// and deletes all logically expired links. This is a destructive operation.
+func resetAllStatistics(ctx context.Context) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for resetting statistics: %w", err)
+	}
+	defer tx.Rollback() // Rollback on error
 
-	_, err := db.ExecContext(ctx, query,
-		link.Data,
-		link.IsCompressed,
-		link.PasswordHash,
-		link.TimesAllowed,
-		link.ExpiresAt,
-		link.Key,
-		link.Domain,
-	)
-	return err
+	// 1. Delete all logically expired links (by time or usage).
+	// This makes the total link count equal to the active link count.
+	deleteQuery := `DELETE FROM links WHERE expires_at <= NOW() OR (times_allowed > 0 AND times_used >= times_allowed);`
+	if _, err := tx.ExecContext(ctx, deleteQuery); err != nil {
+		return fmt.Errorf("failed to delete expired links during reset: %w", err)
+	}
+
+	// 2. Reset click counts on all remaining (active) links.
+	updateQuery := `UPDATE links SET times_used = 0;`
+	if _, err := tx.ExecContext(ctx, updateQuery); err != nil {
+		return fmt.Errorf("failed to reset link click counts during reset: %w", err)
+	}
+
+	// 3. Truncate the historical clicks and expirations tables.
+	if _, err := tx.ExecContext(ctx, `TRUNCATE TABLE clicks, expirations;`); err != nil {
+		return fmt.Errorf("failed to truncate analytics tables during reset: %w", err)
+	}
+
+	// If all commands succeed, commit the transaction.
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction for resetting statistics: %w", err)
+	}
+
+	// 4. After committing, manually analyze the tables to update statistics.
+	analyzeTables(ctx)
+
+	return nil
 }
 
 // --- Session Management ---
@@ -647,6 +847,93 @@ func deleteSessionByToken(ctx context.Context, token string) error {
 	query := `DELETE FROM sessions WHERE token = $1;`
 	_, err := db.ExecContext(ctx, query, token)
 	return err
+}
+
+// getLinkDetails retrieves a link's full details from the database by its key and domain,
+// regardless of its expiration or usage status. This is for admin editing purposes.
+func getLinkDetails(ctx context.Context, key, domain string) (*Link, error) {
+	link := &Link{}
+	query := `
+		SELECT key, domain, link_type, data, is_compressed, password_hash, created_by, times_allowed, times_used, expires_at, created_at
+		FROM links
+		WHERE key = $1 AND domain = $2;`
+
+	err := db.QueryRowContext(ctx, query, key, domain).Scan(
+		&link.Key,
+		&link.Domain,
+		&link.LinkType,
+		&link.Data,
+		&link.IsCompressed,
+		&link.PasswordHash,
+		&link.CreatedBy,
+		&link.TimesAllowed,
+		&link.TimesUsed,
+		&link.ExpiresAt,
+		&link.CreatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil // No link found, not an error.
+		}
+		return nil, fmt.Errorf("failed to get link details from database: %w", err)
+	}
+	return link, nil
+}
+
+// updateLink updates the details of an existing dynamic link in the database.
+func updateLink(ctx context.Context, link Link) error {
+	query := `
+		UPDATE links SET
+			data = $1,
+			is_compressed = $2,
+			password_hash = $3,
+			times_allowed = $4,
+			expires_at = $5
+		WHERE key = $6 AND domain = $7;`
+
+	_, err := db.ExecContext(ctx, query,
+		link.Data,
+		link.IsCompressed,
+		link.PasswordHash,
+		link.TimesAllowed,
+		link.ExpiresAt,
+		link.Key,
+		link.Domain,
+	)
+	return err
+}
+
+// getTopLinks retrieves the top N most clicked active links.
+func getTopLinks(ctx context.Context, limit int) ([]Link, error) {
+	query := `
+		SELECT key, domain, link_type, times_used, expires_at
+		FROM links
+		WHERE expires_at > NOW()
+		ORDER BY times_used DESC
+		LIMIT $1;`
+
+	rows, err := db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query top links: %w", err)
+	}
+	defer rows.Close()
+
+	var links []Link
+	for rows.Next() {
+		var link Link
+		if err := rows.Scan(
+			&link.Key,
+			&link.Domain,
+			&link.LinkType,
+			&link.TimesUsed,
+			&link.ExpiresAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan top link row: %w", err)
+		}
+		links = append(links, link)
+	}
+	return links, rows.Err()
 }
 
 // --- API Key Management ---

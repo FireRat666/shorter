@@ -32,11 +32,6 @@ func validate(s string) bool {
 }
 
 func addHeaders(w http.ResponseWriter, _ *http.Request) {
-	// Set the Content-Security-Policy header if it's defined in the config.
-	if config.CSP != "" {
-		w.Header().Set("Content-Security-Policy", config.CSP)
-	}
-
 	// --- Additional Security Headers ---
 	// Prevent the browser from interpreting files as a different MIME type.
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -48,6 +43,13 @@ func addHeaders(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("X-XSS-Protection", "1; mode=block")
 	// Note: HSTS (Strict-Transport-Security) is typically best handled by the load balancer
 	// or reverse proxy (like Render's) that terminates TLS.
+
+	// Set the Content-Security-Policy, but ONLY if it hasn't been set already.
+	// This allows specific middleware (like CspAdminMiddleware) to set a custom
+	// policy with a nonce, which will not be overwritten by this general function.
+	if w.Header().Get("Content-Security-Policy") == "" && config.CSP != "" {
+		w.Header().Set("Content-Security-Policy", config.CSP)
+	}
 }
 
 // getSubdomainConfig returns the specific configuration for a given host,

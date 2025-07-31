@@ -16,7 +16,7 @@
                 <img src="logo.png">
                 <h1>Temp URL Shortener</h1>
             </div>
-            <form id="shortener" method="POST" enctype="multipart/form-data">
+            <form id="shortener" method="POST">
                 <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <div class="radio-box">
                     <input type="radio" name="len" id="hideCustomKey1" value="1" checked>

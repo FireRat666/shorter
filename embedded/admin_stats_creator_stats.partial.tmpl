@@ -1,0 +1,28 @@
+{{if .CreatorStats}}
+    <table>
+        <thead>
+            <tr>
+                <th>Creator</th>
+                <th>Total Active Links</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .CreatorStats}}
+            <tr>
+                <td>
+                    {{if eq .UserID "admin"}}
+                        Admin UI
+                    {{else if eq .UserID "Anonymous"}}
+                        Anonymous
+                    {{else}}
+                        API Key: <code>{{.UserID | printf "%.8s"}}...</code>
+                    {{end}}
+                </td>
+                <td>{{.LinkCount}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+{{else}}
+    <p>No creator data available.</p>
+{{end}}

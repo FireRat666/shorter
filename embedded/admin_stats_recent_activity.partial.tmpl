@@ -1,0 +1,30 @@
+<table>
+    <thead>
+        <tr>
+            <th>Timeframe</th>
+            <th>Links Created</th>
+            <th>Links Expired</th>
+            <th>Clicks Recorded</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>Last Hour</td>
+            <td>{{.Stats.LinksCreatedLastHour}}</td>
+            <td>{{.Stats.LinksExpiredLastHour}}</td>
+            <td>{{.Stats.ClicksLastHour}}</td>
+        </tr>
+        <tr>
+            <td>Last 24 Hours</td>
+            <td>{{.Stats.LinksCreatedLast24Hours}}</td>
+            <td>{{.Stats.LinksExpiredLast24Hours}}</td>
+            <td>{{.Stats.ClicksLast24Hours}}</td>
+        </tr>
+        <tr>
+            <td>Last 7 Days</td>
+            <td>{{.Stats.LinksCreatedLast7Days}}</td>
+            <td>{{.Stats.LinksExpiredLast7Days}}</td>
+            <td>{{.Stats.ClicksLast7Days}}</td>
+        </tr>
+    </tbody>
+</table>

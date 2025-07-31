@@ -13,48 +13,94 @@
         </div>
 
         <div class="tos">
-            <h2>Overall</h2>
-            <div class="stats-container">
-                <div class="stat-box">
-                    <span class="stat-value">{{.Stats.TotalActiveLinks}}</span>
-                    <span class="stat-label">Total Active Links</span>
-                </div>
-                <div class="stat-box">
-                    <span class="stat-value">{{.Stats.TotalClicks}}</span>
-                    <span class="stat-label">All-Time Clicks</span>
-                </div>
+            <h2>Overall Statistics</h2>
+            <div id="overall-stats-container">
+                <button id="load-overall-stats" class="button">Load Overall Statistics</button>
             </div>
         </div>
 
         <div class="tos">
             <h2>Recent Activity</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Timeframe</th>
-                        <th>Links Created</th>
-                        <th>Links Clicked</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>Last Hour</td>
-                        <td>{{.Stats.LinksCreatedLastHour}}</td>
-                        <td>{{.Stats.ClicksLastHour}}</td>
-                    </tr>
-                    <tr>
-                        <td>Last 24 Hours</td>
-                        <td>{{.Stats.LinksCreatedLast24Hours}}</td>
-                        <td>{{.Stats.ClicksLast24Hours}}</td>
-                    </tr>
-                    <tr>
-                        <td>Last 7 Days</td>
-                        <td>{{.Stats.LinksCreatedLast7Days}}</td>
-                        <td>{{.Stats.ClicksLast7Days}}</td>
-                    </tr>
-                </tbody>
-            </table>
+            <div id="recent-activity-container">
+                <button id="load-recent-activity" class="button">Load Recent Activity</button>
+            </div>
+        </div>
+
+        <div class="tos">
+            <h2>Top 10 Most Clicked Links</h2>
+            <div id="top-links-container">
+                <button id="load-top-links" class="button">Load Top Links</button>
+            </div>
+        </div>
+
+        <div class="tos">
+            <h2>Links by Creator</h2>
+            <div id="creator-stats-container">
+                <button id="load-creator-stats" class="button">Load Creator Stats</button>
+            </div>
+        </div>
+
+        <div class="tos">
+            <input id="reset-stats-toggle" class="toggle-checkbox" type="checkbox" />
+            <label for="reset-stats-toggle" class="toggle-label">Reset Statistics</label>
+            <div class="toggle-content">
+                <p class="info"><strong>Warning:</strong> This will permanently delete all historical click and expiration data, and reset click counts on all active links to zero. This action cannot be undone.</p>
+                <form method="POST" action="/admin/stats/reset">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <input type="submit" value="Reset All Statistics" class="delete-button" data-confirm="Are you sure you want to reset all statistics? This is irreversible.">
+                </form>
+            </div>
         </div>
     </div>
+
+    <script nonce="{{.Nonce}}">
+        function loadStatSection(buttonId, containerId, endpoint) {
+            const button = document.getElementById(buttonId);
+            const container = document.getElementById(containerId);
+
+            button.addEventListener('click', () => {
+                button.disabled = true;
+                button.textContent = 'Loading...';
+
+                fetch(endpoint)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+                        return response.text();
+                    })
+                    .then(html => {
+                        container.innerHTML = html;
+                    })
+                    .catch(error => {
+                        console.error('Error loading stats:', error);
+                        container.innerHTML = `<p class="error">Failed to load data. Please check the console for details.</p>`;
+                    });
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadStatSection(
+                'load-overall-stats',
+                'overall-stats-container',
+                '/admin/stats/overall'
+            );
+            loadStatSection(
+                'load-recent-activity',
+                'recent-activity-container',
+                '/admin/stats/recent-activity'
+            );
+            loadStatSection(
+                'load-top-links',
+                'top-links-container',
+                '/admin/stats/top-links'
+            );
+            loadStatSection(
+                'load-creator-stats',
+                'creator-stats-container',
+                '/admin/stats/creator-stats'
+            );
+        });
+    </script>
 </body>
 </html>

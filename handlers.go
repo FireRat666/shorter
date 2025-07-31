@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FireRat666/shorter/web"
 	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -66,16 +65,11 @@ func handlePOST(w http.ResponseWriter, r *http.Request) {
 		scheme = "https"
 	}
 
-	err := r.ParseMultipartForm(config.MaxRequestSize)
-	if err != nil {
-		logErrors(w, r, errServerError, http.StatusBadRequest, "Error parsing form: "+url.QueryEscape(err.Error()))
-		return
-	}
-
 	// Determine link expiration and key length based on the selected form option
 	length := r.Form.Get("len")
 	var linkTimeout time.Duration
 	var keyLength int
+	var err error
 	switch length {
 	case "1":
 		linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen1Timeout)
@@ -135,6 +129,17 @@ func handlePOST(w http.ResponseWriter, r *http.Request) {
 		Domain:       r.Host,
 		TimesAllowed: xTimes,
 		ExpiresAt:    time.Now().Add(linkTimeout),
+	}
+
+	// Check if an admin is logged in and associate the link with them.
+	// This applies to links created via the main form.
+	sessionCookie, err := r.Cookie("session_token")
+	if err == nil {
+		session, _ := getSessionByToken(r.Context(), sessionCookie.Value)
+		if session != nil {
+			link.CreatedBy.String = session.UserID
+			link.CreatedBy.Valid = true
+		}
 	}
 
 	// Check for and hash the password if provided.
@@ -332,33 +337,6 @@ func csrfProtect(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// handleAdminRoutes sets up a sub-router for all admin-related endpoints.
-// It applies the basicAuth middleware to each handler and then wraps the
-// entire sub-router with the CSP middleware for enhanced security.
-func handleAdminRoutes(mux *http.ServeMux) {
-	// Create a new router for admin-only endpoints.
-	adminRouter := http.NewServeMux()
-
-	// Register the admin handlers, each wrapped in our new sessionAuth middleware.
-	// The paths are relative to the "/admin" prefix that will be stripped.
-	adminRouter.HandleFunc("/", sessionAuth(handleAdmin)) // Matches /admin
-	adminRouter.HandleFunc("/edit", sessionAuth(handleAdminEditPage))
-	adminRouter.HandleFunc("/edit_static_link", sessionAuth(handleAdminEditStaticLinkPage))
-	adminRouter.HandleFunc("/api-keys", sessionAuth(handleAdminAPIKeysPage))
-	adminRouter.HandleFunc("/edit-link", sessionAuth(handleAdminEditLinkPage))
-	adminRouter.HandleFunc("/stats", sessionAuth(handleAdminStatsPage))
-	adminRouter.HandleFunc("/logout", sessionAuth(handleAdminLogout)) // Logout must be protected
-
-	// Create a handler that first strips the "/admin" prefix, then passes to the adminRouter.
-	// This is the standard way to handle sub-routing.
-	adminHandler := http.StripPrefix("/admin", adminRouter)
-
-	// Wrap the StripPrefix handler with our CSP middleware.
-	finalAdminHandler := web.CspAdminMiddleware(adminHandler)
-
-	mux.Handle("/admin/", finalAdminHandler)
-}
-
 // handleAPIRoutes sets up a sub-router for all API endpoints.
 func handleAPIRoutes(mux *http.ServeMux) {
 	apiRouter := http.NewServeMux()
@@ -415,8 +393,10 @@ func apiAuth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// Add user ID to context for potential future use in handlers.
-		ctx := context.WithValue(r.Context(), userContextKey, apiKey.UserID)
+		// Add the API token itself to the context. This allows us to track link
+		// creation per-key, rather than just per-user. The link creation handler
+		// will use this value for the `created_by` field.
+		ctx := context.WithValue(r.Context(), userContextKey, apiKey.Token)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	}
 }
@@ -449,6 +429,13 @@ func handleAPICreateLink(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusForbidden, "The requested domain is not configured on this service")
 		return
 	}
+	// The creatorID will be the API token, as set by the apiAuth middleware.
+	creatorID, ok := r.Context().Value(userContextKey).(string)
+	if !ok {
+		// This should not happen if apiAuth middleware is working correctly.
+		respondWithError(w, http.StatusInternalServerError, "Could not identify creator from API key.")
+		return
+	}
 
 	subdomainCfg := getSubdomainConfig(domain)
 
@@ -472,6 +459,8 @@ func handleAPICreateLink(w http.ResponseWriter, r *http.Request) {
 		TimesAllowed: req.MaxUses,
 		ExpiresAt:    time.Now().Add(linkTimeout),
 	}
+	link.CreatedBy.String = creatorID
+	link.CreatedBy.Valid = true
 
 	// Add password if provided.
 	if req.Password != "" {
@@ -531,724 +520,6 @@ func handleAPICreateLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusCreated, response)
-}
-
-// handleAdminLogout deletes the user's session from the database and clears the cookie.
-func handleAdminLogout(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie("session_token")
-	if err != nil {
-		// If there's no cookie, there's nothing to do.
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-
-	// Delete the session from the database.
-	if err := deleteSessionByToken(r.Context(), cookie.Value); err != nil {
-		// Log the error, but proceed with logout anyway.
-		slogger.Error("Failed to delete session from database during logout", "error", err)
-	}
-
-	// Clear the cookie by setting its expiration to a time in the past.
-	http.SetCookie(w, &http.Cookie{
-		Name:    "session_token",
-		Value:   "",
-		Expires: time.Unix(0, 0),
-		Path:    "/",
-	})
-
-	// Redirect to the homepage.
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-// handleAdmin serves the admin dashboard page.
-func handleAdmin(w http.ResponseWriter, r *http.Request) {
-	// Added for debugging: Log every request that reaches the admin handler.
-	if slogger != nil {
-		slogger.Debug("Admin handler reached", "method", r.Method, "path", r.URL.Path, "form_action", r.FormValue("action"))
-	}
-
-	// This handler is only for the root of the admin section ("/admin" or "/admin/").
-	// After StripPrefix, the path for these is "/". Any other path that falls
-	// through to here (like a request for a static asset) is a 404.
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-
-	// Route request based on HTTP method.
-	if r.Method == http.MethodPost {
-		// Further route POST requests based on the 'action' form value.
-		if err := r.ParseForm(); err != nil {
-			logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Admin form parse error: "+err.Error())
-			return
-		}
-		action := r.FormValue("action")
-		// Wrap all state-changing actions in CSRF protection.
-		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch action {
-			case "create":
-				handleAdminCreateSubdomain(w, r)
-			case "delete":
-				handleAdminDeleteSubdomain(w, r)
-			default:
-				logErrors(w, r, "Invalid admin action.", http.StatusBadRequest, "Unknown admin action submitted")
-			}
-		})
-		csrfProtect(handler)(w, r)
-		return
-	}
-
-	addHeaders(w, r)
-	adminTmpl, ok := templateMap["admin"]
-	if !ok {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin template")
-		return
-	}
-
-	csrfToken := getOrSetCSRFToken(w, r)
-
-	// Create a map for display that explicitly excludes the primary domain.
-	displaySubdomains := make(map[string]SubdomainConfig)
-	for domain, subConfig := range config.Subdomains {
-		if domain != config.PrimaryDomain {
-			displaySubdomains[domain] = subConfig
-		}
-	}
-
-	// Get site-wide statistics.
-	allLinks, err := getAllActiveLinks(r.Context())
-	if err != nil {
-		// Log the error but don't fail the page load. The stats will just be zero.
-		slogger.Error("Failed to retrieve site-wide link statistics", "error", err)
-	}
-
-	var totalClicks int
-	for _, link := range allLinks {
-		totalClicks += link.TimesUsed
-	}
-
-	pageVars := adminPageVars{
-		Subdomains:          displaySubdomains,
-		PrimaryDomainConfig: getSubdomainConfig(config.PrimaryDomain),
-		Defaults:            config.Defaults,
-		PrimaryDomain:       config.PrimaryDomain,
-		CssSRIHash:          cssSRIHash,
-		AdminJsSRIHash:      adminJsSRIHash,
-		TotalLinks:          len(allLinks),
-		TotalClicks:         totalClicks,
-		CSRFToken:           csrfToken,
-	}
-
-	if err := adminTmpl.Execute(w, pageVars); err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin template: "+err.Error())
-	}
-	logOK(r, http.StatusOK)
-}
-
-// handleAdminStatsPage serves the detailed statistics page.
-func handleAdminStatsPage(w http.ResponseWriter, r *http.Request) {
-	stats, err := getLinkStats(r.Context())
-	if err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve link statistics: "+err.Error())
-		return
-	}
-
-	statsTmpl, ok := templateMap["admin_stats"]
-	if !ok {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_stats template")
-		return
-	}
-
-	pageVars := statsPageVars{
-		Stats:      stats,
-		CssSRIHash: cssSRIHash,
-	}
-
-	addHeaders(w, r)
-	if err := statsTmpl.Execute(w, pageVars); err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_stats template: "+err.Error())
-	}
-	logOK(r, http.StatusOK)
-}
-
-func handleAdminCreateSubdomain(w http.ResponseWriter, r *http.Request) {
-	subdomainName := r.FormValue("subdomain")
-
-	// Basic validation
-	if subdomainName == "" {
-		logErrors(w, r, "Subdomain name cannot be empty.", http.StatusBadRequest, "Admin submitted empty subdomain name")
-		return
-	}
-
-	// Parse form values into a config struct.
-	newConfig, err := parseSubdomainForm(r)
-	if err != nil {
-		logErrors(w, r, err.Error(), http.StatusBadRequest, "Admin form validation failed: "+err.Error())
-		return
-	}
-	// Initialize with empty static links for a new subdomain.
-	newConfig.StaticLinks = make(map[string]string)
-
-	// Add the new subdomain to the in-memory config.
-	config.Subdomains[subdomainName] = newConfig
-
-	// Persist the changes to the database.
-	if err := saveSubdomainConfigToDB(r.Context(), subdomainName, newConfig); err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to save configuration to database: "+err.Error())
-		return
-	}
-
-	// Redirect back to the admin page to show the updated list.
-	http.Redirect(w, r, "/admin", http.StatusSeeOther)
-}
-
-func handleAdminDeleteSubdomain(w http.ResponseWriter, r *http.Request) {
-	subdomainName := r.FormValue("subdomain")
-	if subdomainName == "" {
-		logErrors(w, r, "Subdomain name cannot be empty.", http.StatusBadRequest, "Admin delete request missing subdomain name")
-		return
-	}
-
-	// As a safeguard, prevent the primary domain from being deleted.
-	if subdomainName == config.PrimaryDomain {
-		logErrors(w, r, "Cannot delete the primary domain.", http.StatusBadRequest, "Attempted to delete primary domain: "+subdomainName)
-		return
-	}
-
-	// Check that the subdomain actually exists in our configuration.
-	if _, ok := config.Subdomains[subdomainName]; !ok {
-		logErrors(w, r, "Subdomain not found.", http.StatusNotFound, "Attempted to delete non-existent subdomain: "+subdomainName)
-		return
-	}
-
-	if slogger != nil {
-		slogger.Info("Starting deletion process for subdomain", "subdomain", subdomainName)
-	}
-
-	// Also delete all dynamic links associated with this subdomain.
-	if err := deleteLinksForDomain(r.Context(), subdomainName); err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete associated links from database: "+err.Error())
-		return
-	}
-
-	if slogger != nil {
-		slogger.Info("Finished deleting dynamic links for subdomain", "subdomain", subdomainName)
-	}
-
-	// Remove the subdomain from the database.
-	if err := deleteSubdomainFromDB(r.Context(), subdomainName); err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete subdomain from database: "+err.Error())
-		return
-	}
-
-	if slogger != nil {
-		slogger.Info("Finished deleting subdomain config from database", "subdomain", subdomainName)
-	}
-
-	// Remove the subdomain from the in-memory config.
-	delete(config.Subdomains, subdomainName)
-	if slogger != nil {
-		slogger.Info("Successfully removed subdomain from in-memory map", "subdomain", subdomainName)
-	}
-
-	// Redirect back to the admin page.
-	http.Redirect(w, r, "/admin", http.StatusSeeOther)
-}
-
-func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		domain := r.URL.Query().Get("domain")
-		if domain == "" {
-			logErrors(w, r, "Missing domain parameter.", http.StatusBadRequest, "Admin edit page requested without domain")
-			return
-		}
-
-		// Confirm that the domain is a configured domain.
-		// After consolidation, config.Subdomains contains all valid domains.
-		subdomainCfg, ok := config.Subdomains[domain]
-		if !ok {
-			logErrors(w, r, "Domain not found.", http.StatusNotFound, "Admin tried to edit non-existent domain: "+domain)
-			return
-		}
-
-		editTmpl, ok := templateMap["admin_edit"]
-		if !ok {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_edit template")
-			return
-		}
-
-		links, err := getLinksForDomain(r.Context(), domain)
-		if err != nil {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve links for domain: "+err.Error())
-			return
-		}
-
-		pageVars := adminEditPageVars{
-			Domain:         domain,
-			Config:         subdomainCfg,
-			Defaults:       config.Defaults,
-			Links:          links,
-			CssSRIHash:     cssSRIHash,
-			AdminJsSRIHash: adminJsSRIHash,
-		}
-
-		pageVars.CSRFToken = getOrSetCSRFToken(w, r)
-
-		addHeaders(w, r)
-		if err := editTmpl.Execute(w, pageVars); err != nil {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_edit template: "+err.Error())
-		}
-		logOK(r, http.StatusOK)
-
-	case http.MethodPost:
-		// Process form submissions for the edit page
-		if err := r.ParseForm(); err != nil {
-			logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Admin edit form parse error: "+err.Error())
-			return
-		}
-		domain := r.URL.Query().Get("domain")
-		if domain == "" {
-			logErrors(w, r, "Missing domain parameter.", http.StatusBadRequest, "Admin edit action submitted without domain")
-			return
-		}
-
-		action := r.FormValue("action")
-		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch action {
-			case "update_config":
-				handleAdminUpdateConfig(w, r, domain)
-			case "add_static_link":
-				handleAdminAddStaticLink(w, r, domain)
-			case "delete_static_link":
-				handleAdminDeleteStaticLink(w, r, domain)
-			case "delete_multiple_dynamic_links":
-				handleAdminDeleteMultipleDynamicLinks(w, r, domain)
-			default:
-				logErrors(w, r, "Invalid admin action.", http.StatusBadRequest, "Unknown admin edit action submitted")
-			}
-		})
-		csrfProtect(handler)(w, r)
-
-	default:
-		addHeaders(w, r)
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
-func handleAdminUpdateConfig(w http.ResponseWriter, r *http.Request, domain string) {
-	updatedConfig, err := parseSubdomainForm(r)
-	if err != nil {
-		logErrors(w, r, err.Error(), http.StatusBadRequest, "Admin form validation failed: "+err.Error())
-		return
-	}
-
-	// Get the current configuration to preserve the static links, which are not
-	// editable on this form.
-	currentConfig := getSubdomainConfig(domain)
-	updatedConfig.StaticLinks = currentConfig.StaticLinks
-
-	// Update the in-memory config.
-	config.Subdomains[domain] = updatedConfig
-
-	// Persist the changes to the database.
-	if err := saveSubdomainConfigToDB(r.Context(), domain, updatedConfig); err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to save updated configuration to database: "+err.Error())
-		return
-	}
-
-	// Redirect back to the admin page to show the updated list.
-	http.Redirect(w, r, "/admin", http.StatusSeeOther)
-}
-
-func handleAdminAddStaticLink(w http.ResponseWriter, r *http.Request, domain string) {
-	key := r.FormValue("new_static_key")
-	destURL := r.FormValue("new_static_url")
-
-	if key == "" || destURL == "" {
-		logErrors(w, r, "Key and Destination URL cannot be empty.", http.StatusBadRequest, "Admin submitted empty static link field")
-		return
-	}
-
-	// Prepend https:// if no scheme is present.
-	if !strings.HasPrefix(destURL, "http://") && !strings.HasPrefix(destURL, "https://") {
-		destURL = "https://" + destURL
-	}
-
-	// Validate the final URL structure.
-	if _, err := url.ParseRequestURI(destURL); err != nil {
-		logErrors(w, r, "The provided Destination URL appears to be invalid.", http.StatusBadRequest, "Invalid static link URL after normalization")
-		return
-	}
-
-	// Get the current config, add the new static link, and save it back.
-	subdomainCfg := getSubdomainConfig(domain)
-	subdomainCfg.StaticLinks[key] = destURL
-	config.Subdomains[domain] = subdomainCfg // Update in-memory config
-
-	if err := saveSubdomainConfigToDB(r.Context(), domain, subdomainCfg); err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to add static link: "+err.Error())
-		return
-	}
-
-	// Redirect back to the edit page.
-	http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
-}
-
-func handleAdminDeleteStaticLink(w http.ResponseWriter, r *http.Request, domain string) {
-	key := r.FormValue("static_key")
-	if key == "" {
-		logErrors(w, r, "Static link key cannot be empty.", http.StatusBadRequest, "Admin delete static link request missing key")
-		return
-	}
-
-	// Get the current config, delete the static link, and save it back.
-	subdomainCfg := getSubdomainConfig(domain)
-	delete(subdomainCfg.StaticLinks, key)
-	config.Subdomains[domain] = subdomainCfg // Update in-memory config
-
-	if err := saveSubdomainConfigToDB(r.Context(), domain, subdomainCfg); err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete static link: "+err.Error())
-		return
-	}
-
-	// Redirect back to the edit page.
-	http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
-}
-
-func handleAdminDeleteMultipleDynamicLinks(w http.ResponseWriter, r *http.Request, domain string) {
-	// r.Form is already parsed by the calling function.
-	linkKeys := r.Form["link_keys"]
-	if len(linkKeys) == 0 {
-		// If no checkboxes were selected, just redirect back.
-		http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
-		return
-	}
-
-	var errorOccurred bool
-	for _, key := range linkKeys {
-		if err := deleteLink(r.Context(), key, domain); err != nil {
-			// Log the error but continue trying to delete the others.
-			slogger.Error("Failed to delete dynamic link during bulk operation", "key", key, "domain", domain, "error", err)
-			errorOccurred = true
-		}
-	}
-
-	if errorOccurred {
-		slogger.Warn("One or more links could not be deleted during bulk operation", "domain", domain)
-	}
-
-	// Redirect back to the edit page.
-	http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
-}
-
-func handleAdminEditStaticLinkPage(w http.ResponseWriter, r *http.Request) {
-	domain := r.URL.Query().Get("domain")
-	key := r.URL.Query().Get("key")
-
-	if domain == "" || key == "" {
-		logErrors(w, r, "Missing domain or key parameter.", http.StatusBadRequest, "Admin edit static link page requested without domain or key")
-		return
-	}
-
-	// Get the current config for this domain to find the static link.
-	subdomainCfg := getSubdomainConfig(domain)
-	destination, ok := subdomainCfg.StaticLinks[key]
-	if !ok {
-		logErrors(w, r, "Static link not found.", http.StatusNotFound, "Admin tried to edit non-existent static link")
-		return
-	}
-
-	switch r.Method {
-	case http.MethodGet:
-		editTmpl, ok := templateMap["admin_edit_static_link"]
-		if !ok {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_edit_static_link template")
-			return
-		}
-
-		pageVars := adminEditStaticLinkPageVars{
-			Domain:      domain,
-			Key:         key,
-			Destination: destination,
-			CssSRIHash:  cssSRIHash,
-		}
-
-		pageVars.CSRFToken = getOrSetCSRFToken(w, r)
-
-		addHeaders(w, r)
-		if err := editTmpl.Execute(w, pageVars); err != nil {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_edit_static_link template: "+err.Error())
-		}
-		logOK(r, http.StatusOK)
-
-	case http.MethodPost:
-		if err := r.ParseForm(); err != nil {
-			logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Admin edit static link form parse error: "+err.Error())
-			return
-		}
-		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			newDestURL := r.FormValue("new_static_url")
-			if !strings.HasPrefix(newDestURL, "http://") && !strings.HasPrefix(newDestURL, "https://") {
-				newDestURL = "https://" + newDestURL
-			}
-
-			// Update the destination URL and save the entire subdomain config back to the DB.
-			subdomainCfg.StaticLinks[key] = newDestURL
-			config.Subdomains[domain] = subdomainCfg // Update in-memory config
-
-			if err := saveSubdomainConfigToDB(r.Context(), domain, subdomainCfg); err != nil {
-				logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to update static link: "+err.Error())
-				return
-			}
-
-			// Redirect back to the main edit page for the domain.
-			http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
-		})
-		csrfProtect(handler)(w, r)
-	}
-}
-
-// handleAdminEditLinkPage serves the page for editing a dynamic link's properties.
-func handleAdminEditLinkPage(w http.ResponseWriter, r *http.Request) {
-	domain := r.URL.Query().Get("domain")
-	key := r.URL.Query().Get("key")
-
-	if domain == "" || key == "" {
-		logErrors(w, r, "Missing domain or key parameter.", http.StatusBadRequest, "Admin edit link page requested without domain or key")
-		return
-	}
-
-	switch r.Method {
-	case http.MethodGet:
-		handleAdminEditLinkPageGET(w, r, domain, key)
-	case http.MethodPost:
-		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			handleAdminEditLinkPagePOST(w, r, domain, key)
-		})
-		csrfProtect(handler)(w, r)
-	default:
-		addHeaders(w, r)
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
-func handleAdminEditLinkPageGET(w http.ResponseWriter, r *http.Request, domain, key string) {
-	// Retrieve the link's details for editing.
-	link, err := getLinkDetails(r.Context(), key, domain)
-	if err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve link details: "+err.Error())
-		return
-	}
-	if link == nil {
-		logErrors(w, r, "Link not found.", http.StatusNotFound, "Admin tried to edit non-existent link: "+key)
-		return
-	}
-
-	// Decompress text data for display in the textarea.
-	var dataString string
-	if link.LinkType == "text" {
-		if link.IsCompressed {
-			decompressed, err := decompress(link.Data)
-			if err != nil {
-				logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to decompress text data for editing: "+err.Error())
-				return
-			}
-			dataString = decompressed
-		} else {
-			dataString = string(link.Data)
-		}
-	} else {
-		dataString = string(link.Data)
-	}
-
-	editTmpl, ok := templateMap["admin_edit_link"]
-	if !ok {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_edit_link template")
-		return
-	}
-
-	pageVars := adminEditLinkPageVars{
-		Link:       *link,
-		DataString: dataString,
-		CssSRIHash: cssSRIHash,
-	}
-
-	pageVars.CSRFToken = getOrSetCSRFToken(w, r)
-
-	addHeaders(w, r)
-	if err := editTmpl.Execute(w, pageVars); err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_edit_link template: "+err.Error())
-	}
-	logOK(r, http.StatusOK)
-}
-
-func handleAdminEditLinkPagePOST(w http.ResponseWriter, r *http.Request, domain, key string) {
-	// Get the existing link to ensure it exists and to have its current state.
-	link, err := getLinkDetails(r.Context(), key, domain)
-	if err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve link for update: "+err.Error())
-		return
-	}
-	if link == nil {
-		logErrors(w, r, "Link not found.", http.StatusNotFound, "Admin tried to update non-existent link: "+key)
-		return
-	}
-
-	// Parse the form data.
-	if err := r.ParseForm(); err != nil {
-		logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Admin edit link form parse error: "+err.Error())
-		return
-	}
-
-	// Update the link's data based on its type.
-	switch link.LinkType {
-	case "url":
-		destURL := r.FormValue("destination_url")
-		if destURL == "" {
-			logErrors(w, r, "Destination URL cannot be empty.", http.StatusBadRequest, "Admin submitted empty destination URL")
-			return
-		}
-		if len(destURL) > config.MaxURLSize {
-			logErrors(w, r, "URL is too long.", http.StatusRequestEntityTooLarge, fmt.Sprintf("Submitted URL length %d exceeds maximum of %d", len(destURL), config.MaxURLSize))
-			return
-		}
-		link.Data = []byte(destURL)
-		link.IsCompressed = false
-	case "text":
-		textContent := r.FormValue("text_content")
-		if len(textContent) > config.MaxTextSize {
-			logErrors(w, r, "Text content is too large.", http.StatusRequestEntityTooLarge, fmt.Sprintf("Submitted text size %d exceeds maximum of %d", len(textContent), config.MaxTextSize))
-			return
-		}
-		textBytes := []byte(textContent)
-		link.Data = textBytes
-		link.IsCompressed = false
-		if len(textBytes) > config.MinSizeToGzip {
-			compressed, err := compress(textBytes)
-			if err == nil && len(textBytes) > len(compressed) {
-				link.Data = compressed
-				link.IsCompressed = true
-			}
-		}
-	}
-
-	// Update ExpiresAt.
-	expiresAtStr := r.FormValue("expires_at")
-	expiresAt, err := time.Parse("2006-01-02 15:04:05", expiresAtStr)
-	if err != nil {
-		logErrors(w, r, "Invalid date format for Expires At.", http.StatusBadRequest, "Invalid expires_at format: "+expiresAtStr)
-		return
-	}
-	link.ExpiresAt = expiresAt
-
-	// Update TimesAllowed.
-	timesAllowedStr := r.FormValue("times_allowed")
-	timesAllowed, err := strconv.Atoi(timesAllowedStr)
-	if err != nil || timesAllowed < 0 {
-		logErrors(w, r, "Invalid value for Max Uses.", http.StatusBadRequest, "Invalid times_allowed value: "+timesAllowedStr)
-		return
-	}
-	link.TimesAllowed = timesAllowed
-
-	// Update password if a new one was provided.
-	removePassword := r.FormValue("remove_password") == "true"
-	newPassword := r.FormValue("password")
-
-	if removePassword {
-		link.PasswordHash.Valid = false
-		link.PasswordHash.String = ""
-	} else if newPassword != "" {
-		// A new password was entered, so we hash and set it.
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
-		if err != nil {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to hash new password: "+err.Error())
-			return
-		}
-		link.PasswordHash.String = string(hashedPassword)
-		link.PasswordHash.Valid = true
-	}
-	// If neither condition is met, the password remains unchanged.
-
-	// Persist the changes to the database.
-	if err := updateLink(r.Context(), *link); err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to update link in database: "+err.Error())
-		return
-	}
-
-	// Redirect back to the subdomain edit page.
-	http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
-}
-
-// handleAdminAPIKeysPage serves the API key management page and handles key generation/deletion.
-func handleAdminAPIKeysPage(w http.ResponseWriter, r *http.Request) {
-	userID, ok := r.Context().Value(userContextKey).(string)
-	if !ok {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not get user ID from context for API key management")
-		return
-	}
-
-	if r.Method == http.MethodPost {
-		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if err := r.ParseForm(); err != nil {
-				logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "API key management form parse error: "+err.Error())
-				return
-			}
-
-			switch r.FormValue("action") {
-			case "generate":
-				newKey, err := createAPIKey(r.Context(), userID)
-				if err != nil {
-					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate new API key: "+err.Error())
-					return
-				}
-				// Redirect with the new key as a query param so it can be displayed.
-				http.Redirect(w, r, "/admin/api-keys?newKey="+url.QueryEscape(newKey.Token), http.StatusSeeOther)
-			case "delete":
-				tokenToDelete := r.FormValue("token")
-				if tokenToDelete == "" {
-					logErrors(w, r, "Token cannot be empty.", http.StatusBadRequest, "API key deletion request missing token")
-					return
-				}
-				if err := deleteAPIKey(r.Context(), tokenToDelete); err != nil {
-					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete API key: "+err.Error())
-					return
-				}
-				http.Redirect(w, r, "/admin/api-keys", http.StatusSeeOther)
-			default:
-				logErrors(w, r, "Invalid action.", http.StatusBadRequest, "Unknown API key management action")
-			}
-		})
-		csrfProtect(handler)(w, r)
-		return
-	}
-
-	// Handle GET request.
-	keys, err := getAPIKeysForUser(r.Context(), userID)
-	if err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve API keys: "+err.Error())
-		return
-	}
-
-	apiKeysTmpl, ok := templateMap["admin_api_keys"]
-	if !ok {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_api_keys template")
-		return
-	}
-
-	pageVars := adminAPIKeysPageVars{
-		APIKeys:        keys,
-		NewKey:         r.URL.Query().Get("newKey"),
-		AdminJsSRIHash: adminJsSRIHash,
-		CssSRIHash:     cssSRIHash,
-		CSRFToken:      getOrSetCSRFToken(w, r),
-	}
-
-	addHeaders(w, r)
-	if err := apiKeysTmpl.Execute(w, pageVars); err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_api_keys template: "+err.Error())
-	}
-	logOK(r, http.StatusOK)
 }
 
 func handleCSPReport(w http.ResponseWriter, r *http.Request) {
@@ -1759,27 +1030,47 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 		return
 	}
 
-	t, ok := templateMap["link_created"]
-	if !ok {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not find link_created template")
-		return
-	}
-
 	// Respond to the user with the success page.
 	addHeaders(w, r)
 	w.Header().Add("Content-Type", "text/html; charset=utf-8")
 	fullURL := scheme + "://" + r.Host + "/" + link.Key
-	tmplArgs := linkCreatedPageVars{
-		Domain:         scheme + "://" + r.Host,
-		DestinationURL: string(link.Data), // The original long URL is the destination.
-		ShortURL:       fullURL,           // The newly created short link.
-		Timeout:        link.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
-		TimesAllowed:   link.TimesAllowed,
-		RemainingUses:  link.TimesAllowed, // On creation, remaining uses equals times allowed.
-		CssSRIHash:     cssSRIHash,
-	}
-	if err := t.Execute(w, tmplArgs); err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute link_created template: "+err.Error())
+
+	switch link.LinkType {
+	case "url":
+		t, ok := templateMap["link_created"]
+		if !ok {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not find link_created template")
+			return
+		}
+		tmplArgs := linkCreatedPageVars{
+			Domain:         scheme + "://" + r.Host,
+			DestinationURL: string(link.Data), // The original long URL is the destination.
+			ShortURL:       fullURL,           // The newly created short link.
+			Timeout:        link.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
+			TimesAllowed:   link.TimesAllowed,
+			RemainingUses:  link.TimesAllowed, // On creation, remaining uses equals times allowed.
+			CssSRIHash:     cssSRIHash,
+		}
+		if err := t.Execute(w, tmplArgs); err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute link_created template: "+err.Error())
+		}
+	case "text":
+		t, ok := templateMap["text_dump_created"]
+		if !ok {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not find text_dump_created template")
+			return
+		}
+		tmplArgs := textDumpCreatedPageVars{
+			Domain:        scheme + "://" + r.Host,
+			ShortURL:      fullURL,
+			Timeout:       link.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
+			TimesAllowed:  link.TimesAllowed,
+			RemainingUses: link.TimesAllowed,
+			CssSRIHash:    cssSRIHash,
+		}
+		if err := t.Execute(w, tmplArgs); err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute text_dump_created template: "+err.Error())
+		}
 	}
 	logOK(r, http.StatusCreated)
 }

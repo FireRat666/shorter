@@ -16,7 +16,8 @@
                 <img src="logo.png">
                 <h1>Temp URL Shortener</h1>
             </div>
-            <form id="shortener" method="POST" enctype="multipart/form-data">
+            <form id="shortener" method="POST">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <div class="radio-box">
                     <input type="radio" name="len" id="hideCustomKey1" value="1" checked>
                     <label for="hideCustomKey1">Length 1: valid for {{.LinkLen1Display}}</label>
@@ -38,11 +39,11 @@
                     <label for="requestType">Temporary text dump</label>
                     <div id="urlDiv">
                         <span>Submit URL to shorten:</span>
-                        <input type="text" name="url" class="inputbox" placeholder="Your URL Here">
+                        <input type="text" name="url" class="inputbox" placeholder="Your URL Here" maxlength="{{.MaxURLSize}}">
                     </div>
                     <div id="textDiv">
                         <span>Submit text to save temporarily:</span>
-                        <textarea form="shortener" rows="7" cols="80" name="text"></textarea>
+                        <textarea form="shortener" rows="7" cols="80" name="text" maxlength="{{.MaxTextSize}}"></textarea>
                     </div>
                 </div>
                 <div class="radio-box">

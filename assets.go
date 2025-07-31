@@ -13,6 +13,9 @@ var defaultIndexHTML string
 //go:embed embedded/link_created.default.tmpl
 var defaultLinkCreatedHTML string
 
+//go:embed embedded/text_dump_created.default.tmpl
+var defaultTextDumpCreatedHTML string
+
 //go:embed embedded/show_redirect.default.tmpl
 var defaultShowRedirectHTML string
 
@@ -46,24 +49,48 @@ var defaultAdminAPIKeysHTML string
 //go:embed embedded/password_prompt.default.tmpl
 var defaultPasswordPromptHTML string
 
+//go:embed embedded/admin_stats_top_links.partial.tmpl
+var defaultAdminStatsTopLinksPartialHTML string
+
+//go:embed embedded/admin_stats_creator_stats.partial.tmpl
+var defaultAdminStatsCreatorStatsPartialHTML string
+
+//go:embed embedded/admin_stats_recent_activity.partial.tmpl
+var defaultAdminStatsRecentActivityPartialHTML string
+
+//go:embed embedded/admin_stats_overall.partial.tmpl
+var defaultAdminStatsOverallPartialHTML string
+
 // initTemplates initializes the template map, loading custom templates from disk
 // and falling back to embedded templates if custom ones are not found.
 func initTemplates() error {
 	templateMap = make(map[string]*template.Template)
 
-	loadTemplate("index", defaultIndexHTML)
-	loadTemplate("link_created", defaultLinkCreatedHTML)
-	loadTemplate("show_redirect", defaultShowRedirectHTML)
-	loadTemplate("showText", defaultShowTextHTML)
-	loadTemplate("admin", defaultAdminHTML)
-	loadTemplate("admin_edit", defaultAdminEditHTML)
-	loadTemplate("admin_edit_static_link", defaultAdminEditStaticLinkHTML)
-	loadTemplate("admin_edit_link", defaultAdminEditLinkHTML)
-	loadTemplate("error", defaultErrorHTML)
-	loadTemplate("login", defaultLoginHTML)
-	loadTemplate("admin_api_keys", defaultAdminAPIKeysHTML)
-	loadTemplate("password_prompt", defaultPasswordPromptHTML)
-	loadTemplate("admin_stats", defaultAdminStatsHTML)
+	// Define a function map to add custom functions to templates.
+	funcMap := template.FuncMap{
+		"add": func(a, b int) int {
+			return a + b
+		},
+	}
+
+	loadTemplate("index", defaultIndexHTML, funcMap)
+	loadTemplate("text_dump_created", defaultTextDumpCreatedHTML, funcMap)
+	loadTemplate("link_created", defaultLinkCreatedHTML, funcMap)
+	loadTemplate("show_redirect", defaultShowRedirectHTML, funcMap)
+	loadTemplate("showText", defaultShowTextHTML, funcMap)
+	loadTemplate("admin", defaultAdminHTML, funcMap)
+	loadTemplate("admin_edit", defaultAdminEditHTML, funcMap)
+	loadTemplate("admin_edit_static_link", defaultAdminEditStaticLinkHTML, funcMap)
+	loadTemplate("admin_edit_link", defaultAdminEditLinkHTML, funcMap)
+	loadTemplate("error", defaultErrorHTML, funcMap)
+	loadTemplate("login", defaultLoginHTML, funcMap)
+	loadTemplate("admin_api_keys", defaultAdminAPIKeysHTML, funcMap)
+	loadTemplate("password_prompt", defaultPasswordPromptHTML, funcMap)
+	loadTemplate("admin_stats", defaultAdminStatsHTML, funcMap)
+	loadTemplate("admin_stats_top_links.partial", defaultAdminStatsTopLinksPartialHTML, funcMap)
+	loadTemplate("admin_stats_overall.partial", defaultAdminStatsOverallPartialHTML, funcMap)
+	loadTemplate("admin_stats_recent_activity.partial", defaultAdminStatsRecentActivityPartialHTML, funcMap)
+	loadTemplate("admin_stats_creator_stats.partial", defaultAdminStatsCreatorStatsPartialHTML, funcMap)
 
 	slogger.Info("Successfully loaded HTML templates", "count", len(templateMap))
 	return nil
@@ -71,11 +98,12 @@ func initTemplates() error {
 
 // loadTemplate attempts to parse a template from a file on disk. If the file
 // does not exist or fails to parse, it falls back to the provided default template string.
-func loadTemplate(name, defaultContent string) {
+func loadTemplate(name, defaultContent string, funcMap template.FuncMap) {
 	path := filepath.Join(config.BaseDir, "templates", name+".tmpl")
-	tmpl, err := template.ParseFiles(path)
+	// We must associate the funcs before parsing.
+	tmpl, err := template.New(filepath.Base(path)).Funcs(funcMap).ParseFiles(path)
 	if err != nil {
-		tmpl = template.Must(template.New(name).Parse(defaultContent))
+		tmpl = template.Must(template.New(name).Funcs(funcMap).Parse(defaultContent))
 	}
 	templateMap[name] = tmpl
 }

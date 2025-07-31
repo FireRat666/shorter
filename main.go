@@ -56,6 +56,9 @@ func main() {
 	} else {
 		slogger.Info("No expired links found to delete.")
 	}
+	// Analyze tables at startup to ensure planner statistics are fresh.
+	slogger.Info("Analyzing database tables for optimal performance...")
+	analyzeTables(context.Background())
 
 	// 4. Load subdomains from DB and merge with file config.
 	if err := loadSubdomainsAndMerge(context.Background()); err != nil {
@@ -243,5 +246,12 @@ func runCleanup() {
 		slogger.Error("Error during periodic session cleanup", "error", err)
 	} else if sessionsDeleted > 0 {
 		slogger.Info("Periodic cleanup deleted expired sessions", "count", sessionsDeleted)
+	}
+
+	// Clean up old expiration logs to keep the table size manageable.
+	if logsDeleted, err := deleteOldExpirationLogs(context.Background()); err != nil {
+		slogger.Error("Error during periodic expiration log cleanup", "error", err)
+	} else if logsDeleted > 0 {
+		slogger.Info("Periodic cleanup deleted old expiration logs", "count", logsDeleted)
 	}
 }

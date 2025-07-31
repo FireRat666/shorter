@@ -70,6 +70,7 @@ type Link struct {
 	Data         []byte
 	IsCompressed bool
 	PasswordHash sql.NullString
+	CreatedBy    sql.NullString // UserID of the creator
 	TimesAllowed int
 	TimesUsed    int
 	ExpiresAt    time.Time
@@ -99,6 +100,15 @@ type linkCreatedPageVars struct {
 	TimesAllowed   int
 	RemainingUses  int
 	CssSRIHash     string
+}
+
+type textDumpCreatedPageVars struct {
+	Domain        string
+	ShortURL      string
+	Timeout       string
+	TimesAllowed  int
+	RemainingUses int
+	CssSRIHash    string
 }
 
 type showRedirectPageVars struct {
@@ -171,10 +181,14 @@ type adminPageVars struct {
 // LinkStats holds a comprehensive set of statistics for the analytics page.
 type LinkStats struct {
 	TotalActiveLinks        int
+	TotalLinksCreated       int
 	TotalClicks             int
 	LinksCreatedLastHour    int
 	LinksCreatedLast24Hours int
 	LinksCreatedLast7Days   int
+	LinksExpiredLastHour    int
+	LinksExpiredLast24Hours int
+	LinksExpiredLast7Days   int
 	ClicksLastHour          int
 	ClicksLast24Hours       int
 	ClicksLast7Days         int
@@ -182,8 +196,15 @@ type LinkStats struct {
 
 // statsPageVars holds the data for the statistics page template.
 type statsPageVars struct {
-	Stats      *LinkStats
 	CssSRIHash string
+	Nonce      string // For Content-Security-Policy
+	CSRFToken  string
+}
+
+// CreatorStats holds statistics for a single link creator.
+type CreatorStats struct {
+	UserID    string
+	LinkCount int
 }
 
 // adminEditPageVars holds the data for the subdomain edit page.

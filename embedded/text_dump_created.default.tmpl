@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta name="color-scheme" content="dark">
+    <link rel="stylesheet" type="text/css" href="/shorter.css" integrity="{{.CssSRIHash}}">
+	<title>Text Dump Created</title>
+</head>
+<body>
+    <div class="content">
+        <div class="tos">
+            <h1>Text Dump Created Successfully</h1>
+            <p>Your short link is:</p>
+            <h2><a href="{{.ShortURL}}" target="_blank" rel="noopener noreferrer">{{.ShortURL}}</a></h2>
+            <br>
+            <p>This text dump will be removed on {{.Timeout}}.
+            {{if gt .TimesAllowed 0}}<br>It can be used {{.RemainingUses}} more time(s).{{end}}</p>
+        </div>
+        <div class="tos">
+            <input id="showQR" class="toggle-checkbox" type="checkbox" />
+            <label for="showQR" class="toggle-label">Show/Hide QR Code</label>
+            <div class="toggle-content">
+                <div class="qr-code-container">
+                    <img src="/qr?url={{.ShortURL}}" alt="QR Code for {{.ShortURL}}">
+                    <p>Scan the QR code to access the link on your mobile device.</p>
+                </div>
+            </div>
+        </div>
+        <div class="info">Please only navigate to the link if you trust the person that generated the link.</div>
+        <div class="tos">To create your own temporary links, please visit <a href="{{.Domain}}">{{.Domain}}</a></div>
+    </div>
+</body>
+</html>

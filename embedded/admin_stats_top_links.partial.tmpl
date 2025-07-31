@@ -1,0 +1,24 @@
+{{if .TopLinks}}
+    <table>
+        <thead>
+            <tr>
+                <th>Rank</th>
+                <th>Key</th>
+                <th>Domain</th>
+                <th>Clicks</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range $i, $link := .TopLinks}}
+            <tr>
+                <td>{{add $i 1}}</td>
+                <td><a href="/{{$link.Key}}" target="_blank">{{$link.Key}}</a></td>
+                <td>{{$link.Domain}}</td>
+                <td>{{$link.TimesUsed}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+{{else}}
+    <p>No link data available to determine top links.</p>
+{{end}}
