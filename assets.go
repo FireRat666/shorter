@@ -49,6 +49,9 @@ var defaultAdminStatsHTML string
 //go:embed embedded/login.default.tmpl
 var defaultLoginHTML string
 
+//go:embed embedded/login_2fa.default.tmpl
+var defaultLogin2FAHTML string
+
 //go:embed embedded/admin_api_keys.default.tmpl
 var defaultAdminAPIKeysHTML string
 
@@ -57,6 +60,9 @@ var defaultPasswordPromptHTML string
 
 //go:embed embedded/admin_stats_top_links.partial.tmpl
 var defaultAdminStatsTopLinksPartialHTML string
+
+//go:embed embedded/admin_security.default.tmpl
+var defaultAdminSecurityHTML string
 
 //go:embed embedded/admin_stats_creator_stats.partial.tmpl
 var defaultAdminStatsCreatorStatsPartialHTML string
@@ -104,6 +110,8 @@ func initTemplates() error {
 	loadTemplate("admin_edit_link", defaultAdminEditLinkHTML, funcMap)
 	loadTemplate("error", defaultErrorHTML, funcMap)
 	loadTemplate("login", defaultLoginHTML, funcMap)
+	loadTemplate("login_2fa", defaultLogin2FAHTML, funcMap)
+	loadTemplate("admin_security", defaultAdminSecurityHTML, funcMap)
 	loadTemplate("admin_api_keys", defaultAdminAPIKeysHTML, funcMap)
 	loadTemplate("password_prompt", defaultPasswordPromptHTML, funcMap)
 	loadTemplate("admin_stats", defaultAdminStatsHTML, funcMap)

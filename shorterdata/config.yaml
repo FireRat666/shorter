@@ -105,6 +105,11 @@ MalwareProtection:
 Admin:
   User: "admin"
   PassHash: "" # Generate a bcrypt hash for your password and place it here.
+  # To enable 2FA, set TOTPEnabled to true and provide a base32 encoded secret.
+  # You can generate a secret here: https://www.otp2fa.app/
+  # For production, set ADMIN_TOTP_ENABLED and ADMIN_TOTP_SECRET via env vars.
+  TOTPEnabled: false
+  TOTPSecret: "" # Example: JBSWY3DPEHPK3PXP
 
 # Default session duration for admin login.
 SessionTimeout: "24h"

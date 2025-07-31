@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,11 +19,13 @@ import (
 	"time"
 
 	"github.com/gabriel-vasile/mimetype"
+	"github.com/pquerna/otp/totp"
 	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/bcrypt"
 )
 
 func handleRoot(mux *http.ServeMux) {
+	mux.HandleFunc("/login/2fa", handle2FALoginPage)
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		// This is the main entry point for all non-specific requests.
 		// We first add security headers and validate the request host.
@@ -663,6 +666,23 @@ func handleLoginPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// If 2FA is enabled, don't create a full session yet.
+		// Create a temporary, signed cookie to indicate the first factor (password) was successful.
+		if config.Admin.TOTPEnabled {
+			// The message is just the username. The signature proves it's from us.
+			signature := generateHMAC([]byte(username))
+			cookieValue := fmt.Sprintf("%s|%s", username, base64.StdEncoding.EncodeToString(signature))
+
+			http.SetCookie(w, &http.Cookie{
+				Name:     "temp_auth",
+				Value:    cookieValue,
+				Expires:  time.Now().Add(5 * time.Minute), // Short-lived
+				HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode, Path: "/",
+			})
+			http.Redirect(w, r, "/login/2fa", http.StatusSeeOther)
+			return
+		}
+
 		// Authentication successful.
 		slogger.Info("Admin user successfully authenticated", "user", username)
 
@@ -733,6 +753,104 @@ func handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute login template: "+err.Error())
 	}
 	logOK(r, http.StatusOK)
+}
+
+// handle2FALoginPage handles the second step of the login process for 2FA.
+func handle2FALoginPage(w http.ResponseWriter, r *http.Request) {
+	// This page should only be accessible if the user has passed the first login step.
+	// We verify this with a temporary, signed cookie.
+	cookie, err := r.Cookie("temp_auth")
+	if err != nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	// The cookie value should be "username|signature".
+	parts := strings.Split(cookie.Value, "|")
+	if len(parts) != 2 {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	username := parts[0]
+	signature, err := base64.StdEncoding.DecodeString(parts[1])
+	if err != nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	// Verify the signature to ensure the cookie hasn't been tampered with.
+	if !verifyHMAC([]byte(username), signature) {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "2FA form parse error: "+err.Error())
+			return
+		}
+
+		code := r.FormValue("totp_code")
+		if !totp.Validate(code, config.Admin.TOTPSecret) {
+			// Invalid code. Re-render the page with an error.
+			slogger.Warn("Failed 2FA attempt", "user", username)
+			render2FAPage(w, r, "Invalid verification code.")
+			return
+		}
+
+		// 2FA successful. Now we can create the full, persistent session.
+		slogger.Info("Admin user successfully passed 2FA", "user", username)
+
+		// Determine session duration based on "Remember Me" checkbox from the *original* login form.
+		// We'll assume a default duration here for simplicity, or you could pass it in the temp cookie.
+		sessionDuration, err := time.ParseDuration(config.SessionTimeout)
+		if err != nil {
+			sessionDuration = 24 * time.Hour
+		}
+
+		session, err := createSession(r.Context(), username, sessionDuration)
+		if err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to create session after 2FA: "+err.Error())
+			return
+		}
+
+		// Set the final session cookie.
+		http.SetCookie(w, &http.Cookie{
+			Name:     "session_token",
+			Value:    session.Token,
+			Expires:  session.ExpiresAt,
+			HttpOnly: true,
+			Secure:   r.TLS != nil,
+			SameSite: http.SameSiteLaxMode,
+			Path:     "/",
+		})
+
+		// Clear the temporary auth cookie.
+		http.SetCookie(w, &http.Cookie{Name: "temp_auth", Value: "", Expires: time.Unix(0, 0), Path: "/"})
+
+		http.Redirect(w, r, "/admin/", http.StatusSeeOther)
+		return
+	}
+
+	// Handle GET request to display the 2FA page.
+	render2FAPage(w, r, "")
+}
+
+// render2FAPage is a helper to render the 2FA login page.
+func render2FAPage(w http.ResponseWriter, r *http.Request, errorMsg string) {
+	tmpl, ok := templateMap["login_2fa"]
+	if !ok {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load login_2fa template")
+		return
+	}
+	pageVars := struct {
+		Error      string
+		CssSRIHash string
+	}{Error: errorMsg, CssSRIHash: cssSRIHash}
+
+	if err := tmpl.Execute(w, pageVars); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute login_2fa template: "+err.Error())
+	}
 }
 
 func serveIndexPage(w http.ResponseWriter, r *http.Request) {

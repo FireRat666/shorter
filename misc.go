@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"log/slog"
@@ -251,6 +253,19 @@ func deleteUploadedFile(key string) {
 	} else if err == nil {
 		slogger.Info("Successfully deleted uploaded file", "path", filePath)
 	}
+}
+
+// generateHMAC creates a new HMAC-SHA256 signature for a given message.
+// It uses the LogSep from the config as a secret key.
+func generateHMAC(message []byte) []byte {
+	h := hmac.New(sha256.New, []byte(config.LogSep))
+	h.Write(message)
+	return h.Sum(nil)
+}
+
+// verifyHMAC checks if a given HMAC signature is valid for a message.
+func verifyHMAC(message, signature []byte) bool {
+	return hmac.Equal(signature, generateHMAC(message))
 }
 
 // logErrors will write the error to the log file and send an HTTP error to the user.

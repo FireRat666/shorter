@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="color-scheme" content="dark">
+    <link rel="stylesheet" type="text/css" href="/shorter.css" integrity="{{.CssSRIHash}}">
+    <title>Two-Factor Authentication</title>
+</head>
+<body>
+    <div class="content">
+        <div class="header">
+            <h1>Two-Factor Authentication</h1>
+        </div>
+        <div class="tos">
+            <p>Please enter the 6-digit code from your authenticator app.</p>
+            {{if .Error}}
+            <p class="info">{{.Error}}</p>
+            {{end}}
+            <form class="admin-form" method="POST" action="/login/2fa">
+                <label for="totp_code">Verification Code:</label>
+                <input type="text" id="totp_code" name="totp_code" class="inputbox" required autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]*" maxlength="6">
+                <input type="submit" value="Verify" class="admin-submit-button">
+            </form>
+        </div>
+    </div>
+</body>
+</html>

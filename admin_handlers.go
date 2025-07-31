@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image/png"
 	"math"
 	"net/http"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/FireRat666/shorter/web"
+	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -28,6 +30,7 @@ func handleAdminRoutes(mux *http.ServeMux) {
 	adminRouter.HandleFunc("/edit_static_link", sessionAuth(handleAdminEditStaticLinkPage))
 	adminRouter.HandleFunc("/api-keys", sessionAuth(handleAdminAPIKeysPage))
 	adminRouter.HandleFunc("/edit-link", sessionAuth(handleAdminEditLinkPage))
+	adminRouter.HandleFunc("/security", sessionAuth(handleAdminSecurityPage))
 	adminRouter.HandleFunc("/stats", sessionAuth(handleAdminStatsPage))
 	adminRouter.HandleFunc("/logout", sessionAuth(handleAdminLogout)) // Logout must be protected
 
@@ -35,6 +38,7 @@ func handleAdminRoutes(mux *http.ServeMux) {
 	adminRouter.HandleFunc("/stats/overall", sessionAuth(adminStatsOverallHandler))
 	adminRouter.HandleFunc("/stats/top-links", sessionAuth(adminStatsTopLinksHandler))
 	adminRouter.HandleFunc("/stats/recent-activity", sessionAuth(adminStatsRecentActivityHandler))
+	adminRouter.HandleFunc("/security/qr", sessionAuth(handleAdminSecurityQR))
 	adminRouter.HandleFunc("/stats/creator-stats", sessionAuth(adminStatsCreatorStatsHandler))
 	adminRouter.HandleFunc("/stats/domain-list", sessionAuth(adminStatsDomainListHandler))
 	adminRouter.HandleFunc("/stats/domain-details", sessionAuth(adminStatsDomainDetailsHandler))
@@ -159,6 +163,62 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin template: "+err.Error())
 	}
 	logOK(r, http.StatusOK)
+}
+
+// handleAdminSecurityPage serves the 2FA setup and status page.
+func handleAdminSecurityPage(w http.ResponseWriter, r *http.Request) {
+	securityTmpl, ok := templateMap["admin_security"]
+	if !ok {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_security template")
+		return
+	}
+
+	pageVars := struct {
+		TOTPEnabled bool
+		TOTPSecret  string
+		CssSRIHash  string
+	}{
+		TOTPEnabled: config.Admin.TOTPEnabled,
+		TOTPSecret:  config.Admin.TOTPSecret,
+		CssSRIHash:  cssSRIHash,
+	}
+
+	if err := securityTmpl.Execute(w, pageVars); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_security template: "+err.Error())
+	}
+	logOK(r, http.StatusOK)
+}
+
+// handleAdminSecurityQR generates and serves the QR code for 2FA setup.
+func handleAdminSecurityQR(w http.ResponseWriter, r *http.Request) {
+	if !config.Admin.TOTPEnabled || config.Admin.TOTPSecret == "" {
+		http.Error(w, "2FA is not configured on the server.", http.StatusNotFound)
+		return
+	}
+
+	// Generate a TOTP key object from the secret.
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      config.PrimaryDomain,
+		AccountName: config.Admin.User,
+		Secret:      []byte(config.Admin.TOTPSecret),
+	})
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate TOTP key for QR code: "+err.Error())
+		return
+	}
+
+	// Generate the QR code image and serve it.
+	img, err := key.Image(256, 256)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate QR code image: "+err.Error())
+		return
+	}
+
+	// Encode the image directly to the response writer.
+	w.Header().Set("Content-Type", "image/png")
+	if err := png.Encode(w, img); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to encode QR code image: "+err.Error())
+	}
 }
 
 // handleAdminStatsPage serves the detailed statistics page.

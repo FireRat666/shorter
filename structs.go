@@ -38,8 +38,10 @@ type Config struct {
 
 // AdminConfig holds the admin user credentials.
 type AdminConfig struct {
-	User     string `yaml:"User"`
-	PassHash string `yaml:"PassHash"`
+	User        string `yaml:"User"`
+	TOTPEnabled bool   `yaml:"TOTPEnabled"`
+	TOTPSecret  string `yaml:"TOTPSecret"`
+	PassHash    string `yaml:"PassHash"`
 }
 
 // MalwareProtectionConfig holds settings for DNSBL checks.

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="color-scheme" content="dark">
+    <link rel="stylesheet" type="text/css" href="/shorter.css" integrity="{{.CssSRIHash}}">
+    <title>Security Settings</title>
+</head>
+<body>
+    <div class="content">
+        <div class="header">
+            <h1>Security Settings</h1>
+        </div>
+
+        <div class="tos">
+            <h2>Two-Factor Authentication (2FA)</h2>
+            {{if .TOTPEnabled}}
+                <p>2FA is currently <strong>enabled</strong>. To set up a new device, scan the QR code below with your authenticator app (e.g., Google Authenticator, Authy).</p>
+                <div class="qr-code-container">
+                    <img src="/admin/security/qr" alt="2FA QR Code">
+                </div>
+                <p>Your secret key is: <code>{{.TOTPSecret}}</code></p>
+            {{else}}
+                <p class="info">2FA is currently disabled. To enable it, set `TOTPEnabled: true` and provide a `TOTPSecret` in your configuration file or environment variables.</p>
+            {{end}}
+        </div>
+        <a href="/admin" class="admin-back-link">Back to Admin Panel</a>
+    </div>
+</body>
+</html>
