@@ -26,6 +26,7 @@ type Config struct {
 	MinSizeToGzip            int                        `yaml:"MinSizeToGzip"`
 	LowRAM                   bool                       `yaml:"LowRAM"`
 	SessionTimeout           string                     `yaml:"SessionTimeout"`
+	FileUploadsEnabled       bool                       `yaml:"FileUploadsEnabled"`
 	SessionTimeoutRememberMe string                     `yaml:"SessionTimeoutRememberMe"`
 	CleanupInterval          string                     `yaml:"CleanupInterval"`
 	CSP                      string                     `yaml:"CSP"`
@@ -111,6 +112,26 @@ type textDumpCreatedPageVars struct {
 	CssSRIHash    string
 }
 
+type fileCreatedPageVars struct {
+	Domain        string
+	ShortURL      string
+	Timeout       string
+	TimesAllowed  int
+	RemainingUses int
+	CssSRIHash    string
+}
+
+type showFilePageVars struct {
+	Domain        string
+	FileName      string
+	FileSize      string // Formatted string like "123 KB"
+	DownloadURL   string
+	Timeout       string
+	TimesAllowed  int
+	RemainingUses int
+	CssSRIHash    string
+}
+
 type showRedirectPageVars struct {
 	Domain         string
 	DestinationURL string
@@ -132,15 +153,16 @@ type showTextVars struct {
 
 // IndexPageVars holds the data needed to render the index page template.
 type IndexPageVars struct {
-	CssSRIHash      string
-	LinkLen1Display string
-	LinkLen2Display string
-	LinkLen3Display string
-	CustomDisplay   string
-	LinkAccessMaxNr int
-	MaxURLSize      int
-	MaxTextSize     int
-	CSRFToken       string
+	CssSRIHash         string
+	LinkLen1Display    string
+	LinkLen2Display    string
+	LinkLen3Display    string
+	CustomDisplay      string
+	LinkAccessMaxNr    int
+	MaxURLSize         int
+	FileUploadsEnabled bool
+	MaxTextSize        int
+	CSRFToken          string
 }
 
 // errorPageVars holds the data needed to render a generic error page.

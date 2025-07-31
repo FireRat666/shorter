@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gabriel-vasile/mimetype"
 	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -217,6 +219,44 @@ func handlePOST(w http.ResponseWriter, r *http.Request) {
 		}
 
 		createAndRespond(w, r, link, keyLength, scheme)
+	case "file":
+		if !config.FileUploadsEnabled {
+			logErrors(w, r, "File uploads are disabled on this server.", http.StatusForbidden, "Attempted file upload while feature is disabled")
+			return
+		}
+		if lowRAM() {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, errLowRAM)
+			return
+		}
+		// Use ParseMultipartForm to handle file uploads.
+		if err := r.ParseMultipartForm(config.MaxRequestSize); err != nil {
+			// Check for the specific error when the content type is wrong.
+			if errors.Is(err, http.ErrNotMultipart) {
+				logErrors(w, r, "Invalid form encoding for file upload.", http.StatusBadRequest, "File upload attempt with wrong form enctype: "+err.Error())
+			} else {
+				logErrors(w, r, "Request body is too large or malformed.", http.StatusRequestEntityTooLarge, "Failed to parse multipart form: "+err.Error())
+			}
+			return
+		}
+		file, handler, err := r.FormFile("file")
+		if err != nil {
+			logErrors(w, r, "Invalid file upload.", http.StatusBadRequest, "Failed to get file from form: "+err.Error())
+			return
+		}
+		defer file.Close()
+
+		fileBytes, err := io.ReadAll(file)
+		if err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to read uploaded file: "+err.Error())
+			return
+		}
+
+		// Store the original filename in the `data` field, and the content in `is_compressed` for now.
+		// A schema change would be better, but this works without one.
+		link.LinkType = "file"
+		link.Data = []byte(handler.Filename) // Store filename
+		link.IsCompressed = false            // We won't compress file data for now.
+		createAndRespond(w, r, link, keyLength, scheme, fileBytes)
 	default:
 		logErrors(w, r, errNotImplemented, http.StatusNotImplemented, "Error: Invalid requestType argument.")
 	}
@@ -756,15 +796,16 @@ func serveIndexPage(w http.ResponseWriter, r *http.Request) {
 	}
 	// Prepare the data for the index page template.
 	pageVars := IndexPageVars{
-		CssSRIHash:      cssSRIHash,
-		LinkLen1Display: subdomainCfg.LinkLen1Display,
-		LinkLen2Display: subdomainCfg.LinkLen2Display,
-		LinkLen3Display: subdomainCfg.LinkLen3Display,
-		CustomDisplay:   subdomainCfg.CustomDisplay,
-		LinkAccessMaxNr: subdomainCfg.LinkAccessMaxNr,
-		MaxURLSize:      config.MaxURLSize,
-		MaxTextSize:     config.MaxTextSize,
-		CSRFToken:       csrfToken,
+		CssSRIHash:         cssSRIHash,
+		LinkLen1Display:    subdomainCfg.LinkLen1Display,
+		LinkLen2Display:    subdomainCfg.LinkLen2Display,
+		LinkLen3Display:    subdomainCfg.LinkLen3Display,
+		CustomDisplay:      subdomainCfg.CustomDisplay,
+		LinkAccessMaxNr:    subdomainCfg.LinkAccessMaxNr,
+		MaxURLSize:         config.MaxURLSize,
+		FileUploadsEnabled: config.FileUploadsEnabled,
+		MaxTextSize:        config.MaxTextSize,
+		CSRFToken:          csrfToken,
 	}
 
 	if err := indexTmpl.Execute(w, pageVars); err != nil {
@@ -868,16 +909,18 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 
 	// --- From this point on, the user has either provided a correct password or the link was not protected. ---
 
-	// Increment the link's usage count now that access has been granted.
-	err = incrementLinkUsage(r.Context(), key, r.Host)
-	if err != nil {
-		// This is not a fatal error for the user's redirect, so we just log it.
-		slogger.Error("Failed to increment link usage", "key", key, "domain", r.Host, "error", err)
+	// For file links, we only increment usage on actual download, not on viewing the info page.
+	// For all other link types, we increment usage now.
+	if lnk.LinkType != "file" {
+		err = incrementLinkUsage(r.Context(), key, r.Host)
+		if err != nil {
+			// This is not a fatal error for the user's redirect, so we just log it.
+			slogger.Error("Failed to increment link usage", "key", key, "domain", r.Host, "error", err)
+		}
+		// The link data in `lnk` is still valid from the initial retrieval.
+		// We just need to manually adjust the local `TimesUsed` for the template display.
+		lnk.TimesUsed++
 	}
-
-	// The link data in `lnk` is still valid from the initial retrieval.
-	// We just need to manually adjust the `TimesUsed` for the template display.
-	lnk.TimesUsed++
 
 	scheme := "http"
 	if r.TLS != nil {
@@ -905,7 +948,7 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 			DestinationURL: string(lnk.Data),
 			Timeout:        lnk.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
 			TimesAllowed:   lnk.TimesAllowed,
-			RemainingUses:  lnk.TimesAllowed - (lnk.TimesUsed + 1),
+			RemainingUses:  lnk.TimesAllowed - lnk.TimesUsed,
 			CssSRIHash:     cssSRIHash,
 		}
 		if err := t.Execute(w, tmplArgs); err != nil {
@@ -946,12 +989,85 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 			Data:              textContent,
 			Timeout:           lnk.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
 			TimesAllowed:      lnk.TimesAllowed,
-			RemainingUses:     lnk.TimesAllowed - (lnk.TimesUsed + 1),
+			RemainingUses:     lnk.TimesAllowed - lnk.TimesUsed,
 			CssSRIHash:        cssSRIHash,
 			ShowTextJsSRIHash: showTextJsSRIHash,
 		}
 		if err := t.Execute(w, tmplArgs); err != nil {
 			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute showText template: "+err.Error())
+		}
+		logOK(r, http.StatusOK)
+		return
+	case "file":
+		if !config.FileUploadsEnabled {
+			logErrors(w, r, "File uploads are disabled on this server.", http.StatusForbidden, "Attempted to access a file link while feature is disabled")
+			return
+		}
+
+		// Check if this is a direct download request.
+		isDownloadRequest := r.URL.Query().Get("download") == "true"
+
+		filePath := filepath.Join(config.BaseDir, "uploads", lnk.Key)
+
+		if showLink {
+			w.Header().Add("Content-Type", "text/plain; charset=utf-8")
+			logOK(r, http.StatusOK)
+			w.Write([]byte(r.Host + "/" + key + "\n\nis a file download for: " + html.EscapeString(string(lnk.Data))))
+			return
+		}
+
+		if isDownloadRequest {
+			// Increment usage count ONLY on actual download.
+			err = incrementLinkUsage(r.Context(), key, r.Host)
+			if err != nil {
+				// This is a server error, as we failed to update the DB before serving the file.
+				logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to increment link usage before download: "+err.Error())
+				return
+			}
+
+			fileBytes, err := os.ReadFile(filePath)
+			if err != nil {
+				logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not retrieve file for download: "+err.Error())
+				return
+			}
+
+			// Set headers to trigger a download in the browser.
+			w.Header().Set("Content-Disposition", "attachment; filename=\""+string(lnk.Data)+"\"")
+			// Detect and set the correct MIME type.
+			mime := mimetype.Detect(fileBytes)
+			w.Header().Set("Content-Type", mime.String())
+			w.Write(fileBytes)
+			logOK(r, http.StatusOK)
+			return
+		}
+
+		// If not a direct download, show the intermediate page.
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not get file info: "+err.Error())
+			return
+		}
+
+		t, ok := templateMap["show_file"]
+		if !ok {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not find show_file template")
+			return
+		}
+
+		w.Header().Add("Content-Type", "text/html; charset=utf-8")
+		tmplArgs := showFilePageVars{
+			Domain:        scheme + "://" + r.Host,
+			FileName:      string(lnk.Data),
+			FileSize:      formatFileSize(fileInfo.Size()),
+			DownloadURL:   "/" + key + "?download=true",
+			Timeout:       lnk.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
+			TimesAllowed:  lnk.TimesAllowed,
+			RemainingUses: lnk.TimesAllowed - lnk.TimesUsed, // Usage has not been incremented yet.
+			CssSRIHash:    cssSRIHash,
+		}
+
+		if err := t.Execute(w, tmplArgs); err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute show_file template: "+err.Error())
 		}
 		logOK(r, http.StatusOK)
 		return
@@ -981,7 +1097,7 @@ func renderPasswordPrompt(w http.ResponseWriter, r *http.Request, key, errorMsg 
 	}
 }
 
-func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLength int, scheme string) {
+func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLength int, scheme string, fileData ...[]byte) {
 	ctx := r.Context()
 	var err error
 
@@ -1028,6 +1144,20 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 		// For all other errors, use the generic server error message.
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to create link in database: "+err.Error())
 		return
+	}
+
+	// If this is a file upload, save the file to disk.
+	if link.LinkType == "file" && len(fileData) > 0 {
+		uploadDir := filepath.Join(config.BaseDir, "uploads")
+		if err := os.MkdirAll(uploadDir, 0755); err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to create uploads directory: "+err.Error())
+			return
+		}
+		filePath := filepath.Join(uploadDir, link.Key)
+		if err := os.WriteFile(filePath, fileData[0], 0644); err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to save uploaded file: "+err.Error())
+			return
+		}
 	}
 
 	fullURL := scheme + "://" + r.Host + "/" + link.Key
@@ -1083,6 +1213,23 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 		}
 		if err := t.Execute(w, tmplArgs); err != nil {
 			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute text_dump_created template: "+err.Error())
+		}
+	case "file":
+		t, ok := templateMap["file_created"]
+		if !ok {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not find file_created template")
+			return
+		}
+		tmplArgs := fileCreatedPageVars{
+			Domain:        scheme + "://" + r.Host,
+			ShortURL:      fullURL,
+			Timeout:       link.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
+			TimesAllowed:  link.TimesAllowed,
+			RemainingUses: link.TimesAllowed,
+			CssSRIHash:    cssSRIHash,
+		}
+		if err := t.Execute(w, tmplArgs); err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute file_created template: "+err.Error())
 		}
 	}
 	logOK(r, http.StatusCreated)

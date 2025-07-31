@@ -16,7 +16,7 @@
                 <img src="logo.png">
                 <h1>Temp URL Shortener</h1>
             </div>
-            <form id="shortener" method="POST">
+            <form id="shortener" method="POST" enctype="multipart/form-data">
                 <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <div class="radio-box">
                     <input type="radio" name="len" id="hideCustomKey1" value="1" checked>
@@ -37,6 +37,10 @@
                     <label for="requestType">Create temporary URL</label>
                     <input type="radio" name="requestType" id="showText" value="text">
                     <label for="requestType">Temporary text dump</label>
+                    {{if .FileUploadsEnabled}}
+                    <input type="radio" name="requestType" id="showFile" value="file">
+                    <label for="requestType">Temporary file upload</label>
+                    {{end}}
                     <div id="urlDiv">
                         <span>Submit URL to shorten:</span>
                         <input type="text" name="url" class="inputbox" placeholder="Your URL Here" maxlength="{{.MaxURLSize}}">
@@ -44,6 +48,11 @@
                     <div id="textDiv">
                         <span>Submit text to save temporarily:</span>
                         <textarea form="shortener" rows="7" cols="80" name="text" maxlength="{{.MaxTextSize}}"></textarea>
+                    </div>
+                    <div id="fileDiv">
+                        <span>Select file to upload:</span>
+                        <label for="file-upload" class="file-upload">Choose File</label>
+                        <input type="file" id="file-upload" name="file">
                     </div>
                 </div>
                 <div class="radio-box">

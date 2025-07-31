@@ -11,6 +11,7 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
 ### Core Functionality
 *   **URL & Text Sharing**: Create short links or share text snippets with configurable timeouts and key lengths.
 *   **Custom Keys & Usage Limits**: Define your own memorable keys and set a maximum number of uses for any link.
+*   **File Sharing (Optional)**: A configurable feature to allow temporary hosting and sharing of files, with an intermediate download page for user safety.
 *   **Password-Protected Links**: Secure links with a password, requiring visitors to enter it before being redirected.
 *   **QR Code Generation**: Automatically generates a scannable QR code for each created short link.
 *   **Quick Add**: Create short links on the fly with a simple GET request to the root URL.

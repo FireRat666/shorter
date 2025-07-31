@@ -16,6 +16,12 @@ var defaultLinkCreatedHTML string
 //go:embed embedded/text_dump_created.default.tmpl
 var defaultTextDumpCreatedHTML string
 
+//go:embed embedded/file_created.default.tmpl
+var defaultFileCreatedHTML string
+
+//go:embed embedded/show_file.default.tmpl
+var defaultShowFileHTML string
+
 //go:embed embedded/show_redirect.default.tmpl
 var defaultShowRedirectHTML string
 
@@ -82,6 +88,8 @@ func initTemplates() error {
 	loadTemplate("index", defaultIndexHTML, funcMap)
 	loadTemplate("text_dump_created", defaultTextDumpCreatedHTML, funcMap)
 	loadTemplate("link_created", defaultLinkCreatedHTML, funcMap)
+	loadTemplate("file_created", defaultFileCreatedHTML, funcMap)
+	loadTemplate("show_file", defaultShowFileHTML, funcMap)
 	loadTemplate("show_redirect", defaultShowRedirectHTML, funcMap)
 	loadTemplate("showText", defaultShowTextHTML, funcMap)
 	loadTemplate("admin", defaultAdminHTML, funcMap)

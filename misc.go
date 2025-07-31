@@ -214,6 +214,28 @@ func decompress(data []byte) (string, error) {
 	return b.String(), nil
 }
 
+// formatFileSize converts a size in bytes to a human-readable string.
+func formatFileSize(size int64) string {
+	const (
+		_  = iota
+		KB = 1 << (10 * iota)
+		MB
+		GB
+		TB
+	)
+	switch {
+	case size >= TB:
+		return fmt.Sprintf("%.2f TB", float64(size)/float64(TB))
+	case size >= GB:
+		return fmt.Sprintf("%.2f GB", float64(size)/float64(GB))
+	case size >= MB:
+		return fmt.Sprintf("%.2f MB", float64(size)/float64(MB))
+	case size >= KB:
+		return fmt.Sprintf("%.2f KB", float64(size)/float64(KB))
+	}
+	return fmt.Sprintf("%d B", size)
+}
+
 // logErrors will write the error to the log file and send an HTTP error to the user.
 func logErrors(w http.ResponseWriter, r *http.Request, userMessage string, statusCode int, logMessage string) {
 	if slogger != nil {

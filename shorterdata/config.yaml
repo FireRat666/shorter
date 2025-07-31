@@ -1,74 +1,131 @@
-# Domainnames for the shorter service
-# On Render, you should replace this with your actual service URL (e.g., "your-app-name.onrender.com").
+# =============================================================================
+# Shorter - Application Configuration
+# =============================================================================
+# This file contains all the settings for the shorter application.
+# For production deployments (e.g., on Render), it is strongly recommended
+# to override sensitive values using environment variables.
+
+# -----------------------------------------------------------------------------
+# General Server Settings
+# -----------------------------------------------------------------------------
+# A list of all domain names this service will respond to.
+# The first domain in the list is considered the PrimaryDomain.
 DomainNames:
   - "127.0.0.1:8080"
   - "localhost:8080"
 
-# AddressPort is overridden by the PORT environment variable on Render. This is for local development.
+# The address and port the server will listen on.
+# For Render, this is automatically set by the PORT environment variable.
 AddressPort: "127.0.0.1:8080"
 
-# DatabaseURL is overridden by the DATABASE_URL environment variable on Render for security.
-# This value can be used for local development.
+# The full connection string for your PostgreSQL database.
+# For production, this should be set via the DATABASE_URL environment variable.
 # Example: "postgres://user:password@localhost:5432/shorter_db"
 DatabaseURL: ""
 
-# BaseDir should be a relative path to your data directory.
+# The base directory for storing data like templates, CSS, and images.
 BaseDir: "shorterdata"
 
-# Logging should be true to see output in Render's logs.
+
+# -----------------------------------------------------------------------------
+# Logging Configuration
+# -----------------------------------------------------------------------------
+# Enable or disable logging entirely.
 Logging: true
-# Logfile should be empty to log to standard output, which Render captures.
-Logfile: ""
-# LogLevel sets the minimum level of logs to record.
+
+# The minimum level of logs to record.
 # Options (from least to most verbose): "error", "warn", "info", "debug"
-LogLevel: "info"
-# LogSep should be a random secret string.
+LogLevel: "debug"
+
+# The file to write logs to. If empty, logs are written to standard output.
+Logfile: ""
+
+# A secret separator used in log files. Should be a long, random string.
+# For production, this should be set via the LOG_SEP environment variable.
 LogSep: "change-me-to-a-random-secret-string"
 
-# Link timeouts
-# Link key lengths
+
+# -----------------------------------------------------------------------------
+# Feature Flags
+# -----------------------------------------------------------------------------
+# Enable or disable the temporary file upload feature.
+FileUploadsEnabled: false
+
+# Enable low RAM mode. This disables features that consume more memory,
+# such as text compression.
+LowRAM: false
+
+
+# -----------------------------------------------------------------------------
+# Link Behavior & Limits
+# -----------------------------------------------------------------------------
+# The length of the random key for each link duration tier.
 LinkLen1: 1
 LinkLen2: 2
 LinkLen3: 3
 
-# Other settings
+# The absolute maximum length for a custom key.
 MaxKeyLen: 64
-# MaxRequestSize sets the maximum size for the entire form submission (potentially including future file uploads).
-MaxRequestSize: 10000000 # 10MB
-MaxURLSize: 2048 # Max length for a URL.
-MaxTextSize: 100000 # Max size for a text dump (100KB).
-MinSizeToGzip: 128
-# Default session duration for admin login.
-SessionTimeout: "24h"
-# Extended session duration when "Remember Me" is checked.
-SessionTimeoutRememberMe: "720h" # 30 days
-# How often to run the automatic cleanup of expired links and sessions.
-# Use Go duration format (e.g., "24h", "1h30m"). Defaults to 24h if not set.
-CleanupInterval: "24h"
-LowRAM: false
 
-# Content-Security-Policy header value.
+# The maximum size (in bytes) for the entire form submission.
+MaxRequestSize: 10000000 # 10MB
+
+# The maximum size (in bytes) for a URL to be shortened.
+MaxURLSize: 2048 # Max length for a URL.
+
+# The maximum size (in bytes) for a text dump.
+MaxTextSize: 100000 # Max size for a text dump (100KB).
+
+# The minimum size (in bytes) for a text dump to be considered for Gzip compression.
+MinSizeToGzip: 128
+
+
+# -----------------------------------------------------------------------------
+# Security Settings
+# -----------------------------------------------------------------------------
+# The Content-Security-Policy header value for non-admin pages.
 CSP: "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; report-uri /csp-report"
 
-# Malware Protection settings
+# Settings for DNS-based malware protection.
 MalwareProtection:
   Enabled: true
   # List of DNSBL servers to check against.
   DNSBLServers:
     - "all.bl.blocklist.de"
-  # Optional: Specify custom DNS servers to use for checks. Bypasses system DNS.
+  # Optional: Specify custom DNS servers for checks. Bypasses system DNS.
   # Recommended for stability.
   CustomDNSServers: ["1.1.1.1:53", "8.8.8.8:53"]
 
-# Admin interface credentials.
-# User is the username.
-# PassHash should be a bcrypt hash of the desired password.
-# These should be overridden by environment variables for production.
+
+# -----------------------------------------------------------------------------
+# Admin & Session Management
+# -----------------------------------------------------------------------------
+# Admin user credentials.
+# For production, these should be set via ADMIN_USER and ADMIN_PASS_HASH env vars.
 Admin:
   User: "admin"
-  PassHash: "" # Generate a bcrypt hash for your password and place it here or in an env var.
+  PassHash: "" # Generate a bcrypt hash for your password and place it here.
 
-# Default settings are used for all domains unless overridden by a specific subdomain configuration.
+# Default session duration for admin login.
+SessionTimeout: "24h"
+
+# Extended session duration when "Remember Me" is checked.
+SessionTimeoutRememberMe: "720h" # 30 days
+
+
+# -----------------------------------------------------------------------------
+# Automation
+# -----------------------------------------------------------------------------
+# How often to run the automatic cleanup of expired database records.
+# Use Go duration format (e.g., "24h", "1h30m"). Defaults to 24h if not set.
+CleanupInterval: "24h"
+
+
+# -----------------------------------------------------------------------------
+# Default Link Configuration
+# -----------------------------------------------------------------------------
+# These settings are used for all domains unless overridden by a specific
+# subdomain configuration below.
 Defaults:
   LinkLen1Timeout: "1h"
   LinkLen1Display: "1h"
@@ -82,8 +139,12 @@ Defaults:
   StaticLinks:
     "docs": "https://51.firer.at/pages/firescreendocs"
 
-# Subdomains allows for per-domain overrides of the default settings.
-# The key should be the full domain name.
+
+# -----------------------------------------------------------------------------
+# Per-Domain Overrides
+# -----------------------------------------------------------------------------
+# This section allows for per-domain overrides of the default settings.
+# The key should be the full domain name (e.g., "sub.example.com").
 Subdomains:
   # Example for a subdomain with different settings
   # sub.your-app-name.onrender.com:
@@ -91,16 +152,16 @@ Subdomains:
   #   LinkLen1Display: "5m"
   #   StaticLinks:
   #     "home": "https://example.com"
+
   # Example subdomain configurations for local development.
   # Uncomment and modify these to test different subdomain settings.
-  # Subdomains:
-  #   alice.localhost:8080:
-  #     LinkLen1Timeout: "5m"
-  #     LinkLen1Display: "5m"
-  #     StaticLinks:
-  #       "home": "https://alice.dev"
-  #   bob.localhost:8080:
-  #     LinkLen1Timeout: "1h"
-  #     LinkLen1Display: "1h"
-  #     StaticLinks:
-  #       "portfolio": "https://bob.com"
+  # alice.localhost:8080:
+  #   LinkLen1Timeout: "5m"
+  #   LinkLen1Display: "5m"
+  #   StaticLinks:
+  #     "home": "https://alice.dev"
+  # bob.localhost:8080:
+  #   LinkLen1Timeout: "1h"
+  #   LinkLen1Display: "1h"
+  #   StaticLinks:
+  #     "portfolio": "https://bob.com"

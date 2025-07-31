@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="color-scheme" content="dark">
+    <link rel="stylesheet" type="text/css" href="/shorter.css" integrity="{{.CssSRIHash}}">
+    <title>File Link Created</title>
+</head>
+<body>
+    <div class="content">
+        <div class="header">
+            <h1>File Link Created!</h1>
+        </div>
+        <div class="tos">
+            <p>Your file has been uploaded and is available at the following link:</p>
+            <p><a href="{{.ShortURL}}" rel="noopener noreferrer" target="_blank">{{.ShortURL}}</a></p>
+            <p>This link will expire on: {{.Timeout}}</p>
+            {{if .TimesAllowed}}
+            <p>This link can be used {{.RemainingUses}} more time(s).</p>
+            {{end}}
+        </div>
+    </div>
+</body>
+</html>
