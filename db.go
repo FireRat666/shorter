@@ -1086,6 +1086,24 @@ func getTopLinks(ctx context.Context, limit, offset int) ([]Link, error) {
 
 // --- API Key Management ---
 
+// getAPIKeyCountForUser returns the total number of API keys for a user, with an optional search filter.
+func getAPIKeyCountForUser(ctx context.Context, userID, searchQuery string) (int, error) {
+	var count int
+	args := []interface{}{userID}
+	query := `SELECT COUNT(*) FROM api_keys WHERE user_id = $1`
+
+	if searchQuery != "" {
+		query += ` AND token ILIKE $2`
+		args = append(args, "%"+searchQuery+"%")
+	}
+
+	err := db.QueryRowContext(ctx, query, args...).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get API key count for user %s: %w", userID, err)
+	}
+	return count, nil
+}
+
 // createAPIKey generates a new API key for a user and stores it in the database.
 func createAPIKey(ctx context.Context, userID string) (*APIKey, error) {
 	token, err := generateSessionToken() // We can reuse the same secure token generator.
@@ -1108,9 +1126,19 @@ func createAPIKey(ctx context.Context, userID string) (*APIKey, error) {
 }
 
 // getAPIKeysForUser retrieves all API keys associated with a specific user.
-func getAPIKeysForUser(ctx context.Context, userID string) ([]APIKey, error) {
-	query := `SELECT token, user_id, created_at FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC;`
-	rows, err := db.QueryContext(ctx, query, userID)
+func getAPIKeysForUser(ctx context.Context, userID, searchQuery string, limit, offset int) ([]APIKey, error) {
+	args := []interface{}{userID}
+	query := `SELECT token, user_id, created_at FROM api_keys WHERE user_id = $1`
+
+	if searchQuery != "" {
+		query += ` AND token ILIKE $2`
+		args = append(args, "%"+searchQuery+"%")
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d;", len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query API keys for user %s: %w", userID, err)
 	}

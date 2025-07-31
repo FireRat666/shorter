@@ -277,6 +277,11 @@ type adminAPIKeysPageVars struct {
 	NewKey         string // To display a newly generated key
 	AdminJsSRIHash string
 	CssSRIHash     string
+	CurrentPage    int
+	TotalPages     int
+	HasPrev        bool
+	HasNext        bool
+	SearchQuery    string
 	CSRFToken      string
 }
 

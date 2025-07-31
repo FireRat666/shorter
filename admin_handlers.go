@@ -1087,11 +1087,27 @@ func handleAdminAPIKeysPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Handle GET request.
-	keys, err := getAPIKeysForUser(r.Context(), userID)
+	searchQuery := r.URL.Query().Get("q")
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	const limit = 10
+	offset := (page - 1) * limit
+
+	totalKeys, err := getAPIKeyCountForUser(r.Context(), userID, searchQuery)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve API key count: "+err.Error())
+		return
+	}
+
+	keys, err := getAPIKeysForUser(r.Context(), userID, searchQuery, limit, offset)
 	if err != nil {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve API keys: "+err.Error())
 		return
 	}
+
+	totalPages := int(math.Ceil(float64(totalKeys) / float64(limit)))
 
 	apiKeysTmpl, ok := templateMap["admin_api_keys"]
 	if !ok {
@@ -1100,11 +1116,17 @@ func handleAdminAPIKeysPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pageVars := adminAPIKeysPageVars{
-		APIKeys:        keys,
-		NewKey:         r.URL.Query().Get("newKey"),
+		APIKeys:     keys,
+		NewKey:      r.URL.Query().Get("newKey"),
+		CurrentPage: page,
+		TotalPages:  totalPages,
+		HasPrev:     page > 1,
+		HasNext:     page < totalPages,
+		SearchQuery: searchQuery,
+		CSRFToken:   getOrSetCSRFToken(w, r),
+		// SRI hashes are still needed for the page itself
 		AdminJsSRIHash: adminJsSRIHash,
 		CssSRIHash:     cssSRIHash,
-		CSRFToken:      getOrSetCSRFToken(w, r),
 	}
 
 	if err := apiKeysTmpl.Execute(w, pageVars); err != nil {

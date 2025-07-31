@@ -24,6 +24,12 @@
 
         <div class="tos">
             <h2>Your API Keys</h2>
+            <form class="search-form" method="GET" action="/admin/api-keys">
+                <input type="text" name="q" class="inputbox" placeholder="Search by key..." value="{{.SearchQuery}}">
+                <input type="submit" value="Search" class="button">
+                <a href="/admin/api-keys" class="button clear-button">Clear</a>
+            </form>
+
             {{if .APIKeys}}
                 <table>
                     <thead>
@@ -51,9 +57,21 @@
                     </tbody>
                 </table>
             {{else}}
-                <p>You have not generated any API keys yet.</p>
+                <p>No API keys found.</p>
             {{end}}
-            <br>
+            {{if .APIKeys}}
+            <div class="pagination-controls">
+                {{if .HasPrev}}
+                    <a href="/admin/api-keys?q={{.SearchQuery}}&page={{sub .CurrentPage 1}}" class="pagination-button">&laquo; Previous</a>
+                {{end}}
+                {{if gt .TotalPages 1}}
+                    <span>Page {{.CurrentPage}} of {{.TotalPages}}</span>
+                {{end}}
+                {{if .HasNext}}
+                    <a href="/admin/api-keys?q={{.SearchQuery}}&page={{add .CurrentPage 1}}" class="pagination-button">Next &raquo;</a>
+                {{end}}
+            </div>
+            {{end}}
             <form class="admin-form" method="POST" action="/admin/api-keys">
                 <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <input type="hidden" name="action" value="generate">
