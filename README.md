@@ -24,6 +24,7 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
     *   **"Remember Me"**: Stay logged into the admin panel for an extended period.
     *   **Two-Factor Authentication (2FA)**: Secure the admin account with Time-based One-Time Passwords (TOTP) from an authenticator app.
     *   **Link Management**: A paginated and searchable interface to view, edit, and perform bulk deletions of links for each domain.
+    *   **API Key Management**: A paginated and searchable interface to create, manage, and delete API keys with descriptions.
 *   **Advanced Analytics**: A dedicated statistics page provides a comprehensive overview of site activity. All sections load on-demand for a fast user experience and feature:
     *   Overall site-wide totals for active links and clicks.
     *   Recent activity (links created, expired, clicks) over various timeframes.
@@ -232,7 +233,7 @@ curl -X POST "https://shorter.example.com/api/v1/links" \
 *   **Abuse Reporting**: Add a form, protected by a captcha, for users to report links that violate the Terms of Service.
 *   **Data Visualization**: Continue to expand the data visualization capabilities on the statistics page with more charts and interactive elements.
 *   **User Accounts**: Allow non-admin users to register for accounts to manage their own links and API keys, turning the service into a multi-tenant platform.
-*   **Link & API Key Descriptions**: Add a description field to links and API keys to make them easier to identify and manage in the admin panel.
+*   **Link Descriptions**: Add a description field to links to make them easier to identify and manage in the admin panel.
 *   **API Rate Limiting**: Implement rate limiting on the public API to prevent abuse and ensure service stability.
 *   **API Expansion**: Expand the API to allow reading, updating, and deleting links for more powerful programmatic administration.
 *   **Health Check Endpoint**: Create a dedicated `/health` endpoint for automated monitoring by deployment platforms.
