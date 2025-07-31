@@ -1030,10 +1030,23 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 		return
 	}
 
+	fullURL := scheme + "://" + r.Host + "/" + link.Key
+
+	// If the request is from a command-line tool like curl, respond with plain text.
+	// This makes the quick-add feature much more script-friendly.
+	// We check for common command-line user agents in a case-insensitive way.
+	userAgent := strings.ToLower(r.UserAgent())
+	if strings.Contains(userAgent, "curl") || strings.Contains(userAgent, "wget") || strings.Contains(userAgent, "powershell") {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(fullURL + "\n"))
+		logOK(r, http.StatusCreated)
+		return
+	}
+
 	// Respond to the user with the success page.
 	addHeaders(w, r)
 	w.Header().Add("Content-Type", "text/html; charset=utf-8")
-	fullURL := scheme + "://" + r.Host + "/" + link.Key
 
 	switch link.LinkType {
 	case "url":

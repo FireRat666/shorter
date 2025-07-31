@@ -61,15 +61,19 @@ The application will automatically find the `shorterdata` directory and start th
 
 ### Quick Add Feature
 
-You can quickly create a short, random-key link by making a GET request to the root of the service with the URL to shorten as the query string. This will create a link with the shortest default timeout. Note: This method does not support custom keys.
+You can quickly create a short, random-key link by making a GET request to the root of the service with the URL to shorten as the query string. This will create a link with the shortest default timeout.
+
+When using a command-line tool like `curl`, `wget`, or PowerShell's `Invoke-WebRequest`, the service will attempt to detect it and respond with the short URL as plain text, suitable for scripting.
 
 For a service running at `shorter.example.com`, you can use `curl` or your browser:
 
 ```bash
+    # Using curl will return the short URL as plain text
     curl "https://shorter.example.com/?https://www.google.com"
-```
+    # Output: https://shorter.example.com/aBcDeF
 
-The service will respond with a page showing the newly created short link.
+    # Visiting the same URL in a browser will show a confirmation page.
+```
 
 ## Deployment on Render
 This application is designed to be easily deployed as a Web Service on Render.
