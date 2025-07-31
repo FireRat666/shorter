@@ -7,28 +7,34 @@
 A powerful, self-hostable link shortener and text sharing service with multi-domain support.
 
 ## Features
-*   **URL Shortening**: Create short links with configurable timeouts and key lengths.
-*   **Text Sharing**: Share snippets of text with the same expiration and usage controls as links.
-*   **Custom Keys**: Define your own memorable keys for important links.
-*   **Usage Limits**: Set a maximum number of times a link can be accessed before it becomes invalid.
-*   **Link Inspection**: Safely inspect the destination of a short link by appending a `~` to the key.
-*   **Quick Add**: Create short links on the fly with a simple GET request.
+
+### Core Functionality
+*   **URL & Text Sharing**: Create short links or share text snippets with configurable timeouts and key lengths.
+*   **Custom Keys & Usage Limits**: Define your own memorable keys and set a maximum number of uses for any link.
 *   **Password-Protected Links**: Secure links with a password, requiring visitors to enter it before being redirected.
 *   **QR Code Generation**: Automatically generates a scannable QR code for each created short link.
-*   **Secure Admin Panel**: A modern, session-based admin interface for managing the service.
+*   **Quick Add**: Create short links on the fly with a simple GET request to the root URL.
+*   **Link Inspection**: Safely inspect the destination of a short link by appending a `~` to the key.
+
+### Administration & Management
+*   **Secure Admin Panel**: A modern, session-based admin interface for managing the entire service.
     *   **Subdomain Management**: Create, delete, and configure settings for multiple domains from a single interface.
     *   **Per-Domain Configuration**: Override default settings for link timeouts, display values, and usage limits on a per-subdomain basis.
     *   **"Remember Me"**: Stay logged into the admin panel for an extended period.
-    *   **Link Management**: View click counts, edit properties (destination, expiration, usage limits, password), and delete active dynamic links. Manage permanent static links for each domain.
-*   **Persistent Storage**: Uses a PostgreSQL backend to store all links, sessions, and configurations.
+    *   **Link Management**: View click counts, edit all link properties (destination, expiration, usage limits, password), and perform bulk deletions.
 *   **Link Analytics**: A dedicated statistics page provides an overview of site-wide activity, including total links, total clicks, and recent activity over various timeframes.
-*   **Automatic Database Maintenance**: A background job periodically cleans up expired links and sessions, and an intelligent "just-in-time" cleanup mechanism reclaims keys from expired links during normal use.
-*   **Malware Protection**: Integrated with DNS-based blocklists (DNSBL) to prevent shortening of malicious URLs, using the service from [blocklist.de](https://www.blocklist.de/en/rbldns.html).
-*   **Customizable Theming**: Override the default HTML templates with your own to match your brand.
-*   **Deployment Ready**: Designed for modern deployment platforms like Render, with full support for configuration via environment variables.
+*   **Automatic Database Maintenance**: A background job periodically cleans up expired records, and an intelligent "just-in-time" cleanup mechanism reclaims keys from expired links during normal use.
+
+### Security & Deployment
 *   **Secure by Default**: Implements a strict Content Security Policy (CSP), CSRF protection on all forms, and other security headers to protect users.
-*   **Public API**: A RESTful API for programmatic link creation, authenticated with secure bearer tokens.
+*   **Malware Protection**: Integrated with DNS-based blocklists (DNSBL) to prevent shortening of malicious URLs.
+*   **Persistent Storage**: Uses a PostgreSQL backend to store all links, sessions, and configurations.
 *   **Resource Management**: Configurable size limits for URL and text submissions to prevent abuse and manage database size.
+*   **Deployment Ready**: Designed for modern deployment platforms like Render, with full support for configuration via environment variables.
+
+### Extensibility
+*   **Public API**: A RESTful API for programmatic link creation, authenticated with secure bearer tokens.
+*   **Customizable Theming**: Override the default HTML templates with your own to match your brand.
 
 ## Installation
 
