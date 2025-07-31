@@ -511,6 +511,60 @@ func incrementLinkUsage(ctx context.Context, key, domain string) error {
 	return tx.Commit()
 }
 
+// getLinkDetails retrieves a link's full details from the database by its key and domain,
+// regardless of its expiration or usage status. This is for admin editing purposes.
+func getLinkDetails(ctx context.Context, key, domain string) (*Link, error) {
+	link := &Link{}
+	query := `
+		SELECT key, domain, link_type, data, is_compressed, password_hash, times_allowed, times_used, expires_at, created_at
+		FROM links
+		WHERE key = $1 AND domain = $2;`
+
+	err := db.QueryRowContext(ctx, query, key, domain).Scan(
+		&link.Key,
+		&link.Domain,
+		&link.LinkType,
+		&link.Data,
+		&link.IsCompressed,
+		&link.PasswordHash,
+		&link.TimesAllowed,
+		&link.TimesUsed,
+		&link.ExpiresAt,
+		&link.CreatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil // No link found, not an error.
+		}
+		return nil, fmt.Errorf("failed to get link details from database: %w", err)
+	}
+	return link, nil
+}
+
+// updateLink updates the details of an existing dynamic link in the database.
+func updateLink(ctx context.Context, link Link) error {
+	query := `
+		UPDATE links SET
+			data = $1,
+			is_compressed = $2,
+			password_hash = $3,
+			times_allowed = $4,
+			expires_at = $5
+		WHERE key = $6 AND domain = $7;`
+
+	_, err := db.ExecContext(ctx, query,
+		link.Data,
+		link.IsCompressed,
+		link.PasswordHash,
+		link.TimesAllowed,
+		link.ExpiresAt,
+		link.Key,
+		link.Domain,
+	)
+	return err
+}
+
 // --- Session Management ---
 
 // createSession generates a new session token, stores it in the database, and returns the session.

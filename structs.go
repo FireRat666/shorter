@@ -192,6 +192,13 @@ type adminEditStaticLinkPageVars struct {
 	CssSRIHash  string
 }
 
+// adminEditLinkPageVars holds the data for the dynamic link edit page.
+type adminEditLinkPageVars struct {
+	Link       Link
+	DataString string // The link's data, decompressed if necessary.
+	CssSRIHash string
+}
+
 // CSPReport represents the structure of a CSP violation report sent by the browser.
 type CSPReport struct {
 	CSPReport struct {

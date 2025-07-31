@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="color-scheme" content="dark">
+    <link rel="stylesheet" type="text/css" href="/shorter.css" integrity="{{.CssSRIHash}}">
+    <title>Edit Link - {{.Link.Key}}</title>
+</head>
+<body>
+    <div class="content">
+        <div class="header">
+            <h1>Edit Link: {{.Link.Key}}</h1>
+            <p>Domain: {{.Link.Domain}}</p>
+        </div>
+        <div class="tos">
+            <form class="admin-form" method="POST" action="/admin/edit-link?domain={{.Link.Domain}}&key={{.Link.Key}}">
+                {{if eq .Link.LinkType "url"}}
+                <label for="destination_url">Destination URL:</label>
+                <input type="text" id="destination_url" name="destination_url" class="inputbox" value="{{.DataString}}" required>
+                {{else if eq .Link.LinkType "text"}}
+                <label for="text_content">Text Content:</label>
+                <textarea id="text_content" name="text_content" class="text-dump-box" rows="10">{{.DataString}}</textarea>
+                {{end}}
+
+                <label for="expires_at">Expires At (YYYY-MM-DD HH:MM:SS):</label>
+                <input type="text" id="expires_at" name="expires_at" class="inputbox" value="{{.Link.ExpiresAt.Format "2006-01-02 15:04:05"}}" required>
+
+                <label for="times_allowed">Max Uses (0 for unlimited):</label>
+                <input type="number" id="times_allowed" name="times_allowed" class="inputbox" value="{{.Link.TimesAllowed}}" min="0">
+
+                <label for="password">Set/Change Password:</label>
+                <input type="password" id="password" name="password" class="inputbox" placeholder="Leave blank to keep current password">
+                {{if .Link.PasswordHash.Valid}}
+                <label for="remove_password">Remove Password:</label>
+                <input type="checkbox" id="remove_password" name="remove_password" value="true">
+                {{end}}
+
+                <input type="submit" value="Update Link" class="admin-submit-button">
+            </form>
+            <a href="/admin/edit?domain={{.Link.Domain}}" class="admin-back-link">Back to Subdomain Edit Page</a>
+        </div>
+    </div>
+</body>
+</html>

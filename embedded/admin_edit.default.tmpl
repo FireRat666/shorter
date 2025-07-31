@@ -98,6 +98,7 @@
                                 <th>Type</th>
                                 <th>Clicks</th>
                                 <th>Expires At</th>
+                                <th>Edit</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -108,6 +109,7 @@
                                 <td>{{.LinkType}}</td>
                                 <td>{{.TimesUsed}}</td>
                                 <td>{{.ExpiresAt.Format "2006-01-02 15:04 MST"}}</td>
+                                <td><a href="/admin/edit-link?domain={{$.Domain}}&key={{.Key}}" class="edit-button">Edit</a></td>
                             </tr>
                             {{end}}
                         </tbody>

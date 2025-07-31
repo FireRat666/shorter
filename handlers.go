@@ -252,6 +252,7 @@ func handleAdminRoutes(mux *http.ServeMux) {
 	adminRouter.HandleFunc("/", sessionAuth(handleAdmin)) // Matches /admin
 	adminRouter.HandleFunc("/edit", sessionAuth(handleAdminEditPage))
 	adminRouter.HandleFunc("/edit_static_link", sessionAuth(handleAdminEditStaticLinkPage))
+	adminRouter.HandleFunc("/edit-link", sessionAuth(handleAdminEditLinkPage))
 	adminRouter.HandleFunc("/stats", sessionAuth(handleAdminStatsPage))
 	adminRouter.HandleFunc("/logout", sessionAuth(handleAdminLogout)) // Logout must be protected
 
@@ -720,6 +721,172 @@ func handleAdminEditStaticLinkPage(w http.ResponseWriter, r *http.Request) {
 		// Redirect back to the main edit page for the domain.
 		http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
 	}
+}
+
+// handleAdminEditLinkPage serves the page for editing a dynamic link's properties.
+func handleAdminEditLinkPage(w http.ResponseWriter, r *http.Request) {
+	domain := r.URL.Query().Get("domain")
+	key := r.URL.Query().Get("key")
+
+	if domain == "" || key == "" {
+		logErrors(w, r, "Missing domain or key parameter.", http.StatusBadRequest, "Admin edit link page requested without domain or key")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		handleAdminEditLinkPageGET(w, r, domain, key)
+	case http.MethodPost:
+		handleAdminEditLinkPagePOST(w, r, domain, key)
+	default:
+		addHeaders(w, r)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func handleAdminEditLinkPageGET(w http.ResponseWriter, r *http.Request, domain, key string) {
+	// Retrieve the link's details for editing.
+	link, err := getLinkDetails(r.Context(), key, domain)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve link details: "+err.Error())
+		return
+	}
+	if link == nil {
+		logErrors(w, r, "Link not found.", http.StatusNotFound, "Admin tried to edit non-existent link: "+key)
+		return
+	}
+
+	// Decompress text data for display in the textarea.
+	var dataString string
+	if link.LinkType == "text" {
+		if link.IsCompressed {
+			decompressed, err := decompress(link.Data)
+			if err != nil {
+				logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to decompress text data for editing: "+err.Error())
+				return
+			}
+			dataString = decompressed
+		} else {
+			dataString = string(link.Data)
+		}
+	} else {
+		dataString = string(link.Data)
+	}
+
+	editTmpl, ok := templateMap["admin_edit_link"]
+	if !ok {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_edit_link template")
+		return
+	}
+
+	pageVars := adminEditLinkPageVars{
+		Link:       *link,
+		DataString: dataString,
+		CssSRIHash: cssSRIHash,
+	}
+
+	addHeaders(w, r)
+	if err := editTmpl.Execute(w, pageVars); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_edit_link template: "+err.Error())
+	}
+	logOK(r, http.StatusOK)
+}
+
+func handleAdminEditLinkPagePOST(w http.ResponseWriter, r *http.Request, domain, key string) {
+	// Get the existing link to ensure it exists and to have its current state.
+	link, err := getLinkDetails(r.Context(), key, domain)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve link for update: "+err.Error())
+		return
+	}
+	if link == nil {
+		logErrors(w, r, "Link not found.", http.StatusNotFound, "Admin tried to update non-existent link: "+key)
+		return
+	}
+
+	// Parse the form data.
+	if err := r.ParseForm(); err != nil {
+		logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Admin edit link form parse error: "+err.Error())
+		return
+	}
+
+	// Update the link's data based on its type.
+	switch link.LinkType {
+	case "url":
+		destURL := r.FormValue("destination_url")
+		if destURL == "" {
+			logErrors(w, r, "Destination URL cannot be empty.", http.StatusBadRequest, "Admin submitted empty destination URL")
+			return
+		}
+		if len(destURL) > config.MaxURLSize {
+			logErrors(w, r, "URL is too long.", http.StatusRequestEntityTooLarge, fmt.Sprintf("Submitted URL length %d exceeds maximum of %d", len(destURL), config.MaxURLSize))
+			return
+		}
+		link.Data = []byte(destURL)
+		link.IsCompressed = false
+	case "text":
+		textContent := r.FormValue("text_content")
+		if len(textContent) > config.MaxTextSize {
+			logErrors(w, r, "Text content is too large.", http.StatusRequestEntityTooLarge, fmt.Sprintf("Submitted text size %d exceeds maximum of %d", len(textContent), config.MaxTextSize))
+			return
+		}
+		textBytes := []byte(textContent)
+		link.Data = textBytes
+		link.IsCompressed = false
+		if len(textBytes) > config.MinSizeToGzip {
+			compressed, err := compress(textBytes)
+			if err == nil && len(textBytes) > len(compressed) {
+				link.Data = compressed
+				link.IsCompressed = true
+			}
+		}
+	}
+
+	// Update ExpiresAt.
+	expiresAtStr := r.FormValue("expires_at")
+	expiresAt, err := time.Parse("2006-01-02 15:04:05", expiresAtStr)
+	if err != nil {
+		logErrors(w, r, "Invalid date format for Expires At.", http.StatusBadRequest, "Invalid expires_at format: "+expiresAtStr)
+		return
+	}
+	link.ExpiresAt = expiresAt
+
+	// Update TimesAllowed.
+	timesAllowedStr := r.FormValue("times_allowed")
+	timesAllowed, err := strconv.Atoi(timesAllowedStr)
+	if err != nil || timesAllowed < 0 {
+		logErrors(w, r, "Invalid value for Max Uses.", http.StatusBadRequest, "Invalid times_allowed value: "+timesAllowedStr)
+		return
+	}
+	link.TimesAllowed = timesAllowed
+
+	// Update password if a new one was provided.
+	removePassword := r.FormValue("remove_password") == "true"
+	newPassword := r.FormValue("password")
+
+	if removePassword {
+		link.PasswordHash.Valid = false
+		link.PasswordHash.String = ""
+	} else if newPassword != "" {
+		// A new password was entered, so we hash and set it.
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+		if err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to hash new password: "+err.Error())
+			return
+		}
+		link.PasswordHash.String = string(hashedPassword)
+		link.PasswordHash.Valid = true
+	}
+	// If neither condition is met, the password remains unchanged.
+
+	// Persist the changes to the database.
+	if err := updateLink(r.Context(), *link); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to update link in database: "+err.Error())
+		return
+	}
+
+	// Redirect back to the subdomain edit page.
+	http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
 }
 
 func handleCSPReport(w http.ResponseWriter, r *http.Request) {
