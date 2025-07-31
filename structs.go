@@ -250,6 +250,7 @@ type adminEditPageVars struct {
 	TotalPages     int
 	HasPrev        bool
 	HasNext        bool
+	SearchQuery    string
 	CSRFToken      string
 }
 

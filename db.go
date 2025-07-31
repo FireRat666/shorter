@@ -365,10 +365,17 @@ func runSchemaMigration(ctx context.Context, tableName, columnName, columnType s
 }
 
 // getLinkCountForDomain returns the total number of active links for a specific domain.
-func getLinkCountForDomain(ctx context.Context, domain string) (int, error) {
+func getLinkCountForDomain(ctx context.Context, domain, searchQuery string) (int, error) {
 	var count int
-	query := `SELECT COUNT(*) FROM links WHERE domain = $1 AND expires_at > NOW();`
-	err := db.QueryRowContext(ctx, query, domain).Scan(&count)
+	args := []interface{}{domain}
+	query := `SELECT COUNT(*) FROM links WHERE domain = $1 AND expires_at > NOW()`
+
+	if searchQuery != "" {
+		query += ` AND key ILIKE $2`
+		args = append(args, "%"+searchQuery+"%")
+	}
+
+	err := db.QueryRowContext(ctx, query, args...).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get link count for domain %s: %w", domain, err)
 	}
@@ -376,14 +383,22 @@ func getLinkCountForDomain(ctx context.Context, domain string) (int, error) {
 }
 
 // getLinksForDomain retrieves a paginated list of active links for a specific domain.
-func getLinksForDomain(ctx context.Context, domain string, limit, offset int) ([]Link, error) {
+func getLinksForDomain(ctx context.Context, domain, searchQuery string, limit, offset int) ([]Link, error) {
+	args := []interface{}{domain}
 	query := `
 		SELECT key, link_type, times_used, expires_at, password_hash, created_by
 		FROM links
-		WHERE domain = $1 AND expires_at > NOW()
-		ORDER BY created_at DESC LIMIT $2 OFFSET $3;`
+		WHERE domain = $1 AND expires_at > NOW()`
 
-	rows, err := db.QueryContext(ctx, query, domain, limit, offset)
+	if searchQuery != "" {
+		query += ` AND key ILIKE $2`
+		args = append(args, "%"+searchQuery+"%")
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d;", len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query links for domain %s: %w", domain, err)
 	}

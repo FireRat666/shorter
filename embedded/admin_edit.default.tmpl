@@ -89,6 +89,13 @@
 
         <div class="tos">
             <h2>Active Links &amp; Text Dumps</h2>
+            <form class="search-form" method="GET" action="/admin/edit">
+                <input type="hidden" name="domain" value="{{.Domain}}">
+                <input type="text" name="q" class="inputbox" placeholder="Search by key..." value="{{.SearchQuery}}">
+                <input type="submit" value="Search" class="button">
+                <a href="/admin/edit?domain={{.Domain}}" class="button clear-button">Clear</a>
+            </form>
+
             <form method="POST" action="/admin/edit?domain={{.Domain}}">
                 <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <input type="hidden" name="action" value="delete_multiple_dynamic_links">
@@ -131,13 +138,13 @@
             {{if .Links}}
             <div class="pagination-controls">
                 {{if .HasPrev}}
-                    <a href="/admin/edit?domain={{.Domain}}&page={{sub .CurrentPage 1}}" class="pagination-button">&laquo; Previous</a>
+                    <a href="/admin/edit?domain={{.Domain}}&q={{.SearchQuery}}&page={{sub .CurrentPage 1}}" class="pagination-button">&laquo; Previous</a>
                 {{end}}
                 {{if gt .TotalPages 1}}
                     <span>Page {{.CurrentPage}} of {{.TotalPages}}</span>
                 {{end}}
                 {{if .HasNext}}
-                    <a href="/admin/edit?domain={{.Domain}}&page={{add .CurrentPage 1}}" class="pagination-button">Next &raquo;</a>
+                    <a href="/admin/edit?domain={{.Domain}}&q={{.SearchQuery}}&page={{add .CurrentPage 1}}" class="pagination-button">Next &raquo;</a>
                 {{end}}
             </div>
             {{end}}

@@ -595,6 +595,8 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		searchQuery := r.URL.Query().Get("q")
+
 		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 		if page < 1 {
 			page = 1
@@ -602,13 +604,13 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 		const limit = 25 // Show 25 links per page
 		offset := (page - 1) * limit
 
-		totalLinks, err := getLinkCountForDomain(r.Context(), domain)
+		totalLinks, err := getLinkCountForDomain(r.Context(), domain, searchQuery)
 		if err != nil {
 			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve link count for domain: "+err.Error())
 			return
 		}
 
-		links, err := getLinksForDomain(r.Context(), domain, limit, offset)
+		links, err := getLinksForDomain(r.Context(), domain, searchQuery, limit, offset)
 		if err != nil {
 			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve links for domain: "+err.Error())
 			return
@@ -625,6 +627,7 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 			TotalPages:     totalPages,
 			HasPrev:        page > 1,
 			HasNext:        page < totalPages,
+			SearchQuery:    searchQuery,
 			CssSRIHash:     cssSRIHash,
 			AdminJsSRIHash: adminJsSRIHash,
 		}

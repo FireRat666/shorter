@@ -444,3 +444,21 @@ select.is-overridden {
     color: white;
     padding: 0.5em 1em;
 }
+
+.search-form {
+    display: flex;
+    gap: 0.5em;
+    margin-bottom: 1em;
+    align-items: center;
+}
+
+.search-form .inputbox {
+    margin: 0; /* Override default margin */
+    flex-grow: 1;
+}
+
+.search-form .button, .search-form .clear-button {
+    width: auto;
+    padding: 0.75em 1.5em; /* Match input box height */
+    text-decoration: none;
+}
