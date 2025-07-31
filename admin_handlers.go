@@ -535,17 +535,36 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		links, err := getLinksForDomain(r.Context(), domain)
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		if page < 1 {
+			page = 1
+		}
+		const limit = 25 // Show 25 links per page
+		offset := (page - 1) * limit
+
+		totalLinks, err := getLinkCountForDomain(r.Context(), domain)
+		if err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve link count for domain: "+err.Error())
+			return
+		}
+
+		links, err := getLinksForDomain(r.Context(), domain, limit, offset)
 		if err != nil {
 			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve links for domain: "+err.Error())
 			return
 		}
+
+		totalPages := int(math.Ceil(float64(totalLinks) / float64(limit)))
 
 		pageVars := adminEditPageVars{
 			Domain:         domain,
 			Config:         subdomainCfg,
 			Defaults:       config.Defaults,
 			Links:          links,
+			CurrentPage:    page,
+			TotalPages:     totalPages,
+			HasPrev:        page > 1,
+			HasNext:        page < totalPages,
 			CssSRIHash:     cssSRIHash,
 			AdminJsSRIHash: adminJsSRIHash,
 		}

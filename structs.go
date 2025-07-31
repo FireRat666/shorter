@@ -244,6 +244,10 @@ type adminEditPageVars struct {
 	Links          []Link
 	CssSRIHash     string
 	AdminJsSRIHash string
+	CurrentPage    int
+	TotalPages     int
+	HasPrev        bool
+	HasNext        bool
 	CSRFToken      string
 }
 
