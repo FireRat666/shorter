@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="color-scheme" content="dark">
+    <link rel="stylesheet" type="text/css" href="/shorter.css" integrity="{{.CssSRIHash}}">
+    <script src="/js/admin.js" integrity="{{.AdminJsSRIHash}}" defer></script>
+    <title>API Key Management</title>
+</head>
+<body>
+    <div class="content">
+        <div class="header">
+            <h1>API Key Management</h1>
+        </div>
+
+        {{if .NewKey}}
+        <div class="tos">
+            <h2>New API Key Generated</h2>
+            <p class="info">Please copy this key now. You will not be able to see it again.</p>
+            <div class="destination-box">
+                <code>{{.NewKey}}</code>
+            </div>
+        </div>
+        {{end}}
+
+        <div class="tos">
+            <h2>Your API Keys</h2>
+            {{if .APIKeys}}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Key (first 8 characters)</th>
+                            <th>Created At</th>
+                            <th>Delete</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .APIKeys}}
+                        <tr>
+                            <td><code>{{.Token | printf "%.8s"}}...</code></td>
+                            <td>{{.CreatedAt.Format "2006-01-02 15:04 MST"}}</td>
+                            <td>
+                                <form method="POST" action="/admin/api-keys">
+                                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                                    <input type="hidden" name="action" value="delete">
+                                    <input type="hidden" name="token" value="{{.Token}}">
+                                    <input type="submit" value="Delete" class="delete-button" data-confirm="Are you sure you want to delete this API key? Any applications using it will stop working.">
+                                </form>
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            {{else}}
+                <p>You have not generated any API keys yet.</p>
+            {{end}}
+            <br>
+            <form class="admin-form" method="POST" action="/admin/api-keys">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="hidden" name="action" value="generate">
+                <input type="submit" value="Generate New API Key" class="admin-submit-button">
+            </form>
+        </div>
+        <a href="/admin" class="admin-back-link">Back to Admin Panel</a>
+    </div>
+</body>
+</html>

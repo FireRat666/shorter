@@ -84,6 +84,13 @@ type Session struct {
 	ExpiresAt time.Time
 }
 
+// APIKey represents a user's API key in the database.
+type APIKey struct {
+	Token     string
+	UserID    string
+	CreatedAt time.Time
+}
+
 type linkCreatedPageVars struct {
 	Domain         string
 	DestinationURL string
@@ -205,6 +212,31 @@ type adminEditLinkPageVars struct {
 	DataString string // The link's data, decompressed if necessary.
 	CSRFToken  string
 	CssSRIHash string
+}
+
+// adminAPIKeysPageVars holds data for the API key management page.
+type adminAPIKeysPageVars struct {
+	APIKeys        []APIKey
+	NewKey         string // To display a newly generated key
+	AdminJsSRIHash string
+	CssSRIHash     string
+	CSRFToken      string
+}
+
+// apiCreateLinkRequest defines the structure for a JSON request to create a new link via the API.
+type apiCreateLinkRequest struct {
+	URL       string `json:"url"`
+	Domain    string `json:"domain,omitempty"`     // Optional. If not provided, use PrimaryDomain.
+	ExpiresIn string `json:"expires_in,omitempty"` // Optional. e.g., "1h", "30m". If not provided, use a default.
+	MaxUses   int    `json:"max_uses,omitempty"`   // Optional.
+	Password  string `json:"password,omitempty"`   // Optional.
+	CustomKey string `json:"custom_key,omitempty"` // Optional.
+}
+
+// apiCreateLinkResponse defines the structure for a successful JSON response after creating a link.
+type apiCreateLinkResponse struct {
+	ShortURL  string    `json:"short_url"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 // CSPReport represents the structure of a CSP violation report sent by the browser.

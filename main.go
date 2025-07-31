@@ -87,6 +87,7 @@ func main() {
 	mux.HandleFunc("/login", handleLoginPage)
 	mux.HandleFunc("/qr", handleQRCodePage)
 	handleAdminRoutes(mux)
+	handleAPIRoutes(mux)
 	handleRobots(mux)
 	handleImages(mux)
 	handleJS(mux)

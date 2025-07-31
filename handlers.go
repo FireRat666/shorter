@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -216,6 +217,11 @@ func handlePOST(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// A private key type to use for context values. This prevents collisions.
+type contextKey string
+
+const userContextKey = contextKey("userID")
+
 // sessionAuth is a middleware that protects handlers by requiring a valid session cookie.
 func sessionAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -240,8 +246,11 @@ func sessionAuth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// If the session is valid, call the next handler.
-		next.ServeHTTP(w, r)
+		// Add user ID to the request context for downstream handlers.
+		ctx := context.WithValue(r.Context(), userContextKey, session.UserID)
+
+		// If the session is valid, call the next handler with the new context.
+		next.ServeHTTP(w, r.WithContext(ctx))
 	}
 }
 
@@ -335,6 +344,7 @@ func handleAdminRoutes(mux *http.ServeMux) {
 	adminRouter.HandleFunc("/", sessionAuth(handleAdmin)) // Matches /admin
 	adminRouter.HandleFunc("/edit", sessionAuth(handleAdminEditPage))
 	adminRouter.HandleFunc("/edit_static_link", sessionAuth(handleAdminEditStaticLinkPage))
+	adminRouter.HandleFunc("/api-keys", sessionAuth(handleAdminAPIKeysPage))
 	adminRouter.HandleFunc("/edit-link", sessionAuth(handleAdminEditLinkPage))
 	adminRouter.HandleFunc("/stats", sessionAuth(handleAdminStatsPage))
 	adminRouter.HandleFunc("/logout", sessionAuth(handleAdminLogout)) // Logout must be protected
@@ -347,6 +357,180 @@ func handleAdminRoutes(mux *http.ServeMux) {
 	finalAdminHandler := web.CspAdminMiddleware(adminHandler)
 
 	mux.Handle("/admin/", finalAdminHandler)
+}
+
+// handleAPIRoutes sets up a sub-router for all API endpoints.
+func handleAPIRoutes(mux *http.ServeMux) {
+	apiRouter := http.NewServeMux()
+	apiRouter.HandleFunc("/links", apiAuth(handleAPICreateLink))
+
+	// This handler will strip the "/api/v1" prefix before passing to the apiRouter.
+	apiHandler := http.StripPrefix("/api/v1", apiRouter)
+	mux.Handle("/api/v1/", apiHandler)
+}
+
+// respondWithJSON is a helper to send JSON responses.
+func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
+	response, err := json.Marshal(payload)
+	if err != nil {
+		// This is a server-side error if we can't marshal our own struct.
+		slogger.Error("Failed to marshal JSON response", "error", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"Internal Server Error"}`))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	w.Write(response)
+}
+
+// respondWithError is a helper to send structured JSON error responses.
+func respondWithError(w http.ResponseWriter, code int, message string) {
+	respondWithJSON(w, code, map[string]string{"error": message})
+}
+
+// apiAuth is a middleware that protects API endpoints by requiring a valid Bearer token.
+func apiAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			respondWithError(w, http.StatusUnauthorized, "Authorization header is required")
+			return
+		}
+
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+			respondWithError(w, http.StatusUnauthorized, "Authorization header must be in 'Bearer {token}' format")
+			return
+		}
+
+		token := parts[1]
+		apiKey, err := getAPIKeyByToken(r.Context(), token)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to validate API key")
+			return
+		}
+		if apiKey == nil {
+			respondWithError(w, http.StatusUnauthorized, "Invalid API key")
+			return
+		}
+
+		// Add user ID to context for potential future use in handlers.
+		ctx := context.WithValue(r.Context(), userContextKey, apiKey.UserID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}
+}
+
+// handleAPICreateLink handles requests to create a new link via the API.
+func handleAPICreateLink(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondWithError(w, http.StatusMethodNotAllowed, "Only POST method is allowed")
+		return
+	}
+
+	var req apiCreateLinkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid JSON request body")
+		return
+	}
+
+	if req.URL == "" {
+		respondWithError(w, http.StatusBadRequest, "The 'url' field is required")
+		return
+	}
+
+	// Use primary domain if none is specified in the request.
+	domain := req.Domain
+	if domain == "" {
+		domain = config.PrimaryDomain
+	}
+	// Validate that the requested domain is one we serve.
+	if _, ok := config.Subdomains[domain]; !ok {
+		respondWithError(w, http.StatusForbidden, "The requested domain is not configured on this service")
+		return
+	}
+
+	subdomainCfg := getSubdomainConfig(domain)
+
+	// Use default timeout if none is specified.
+	timeoutStr := req.ExpiresIn
+	if timeoutStr == "" {
+		timeoutStr = subdomainCfg.LinkLen1Timeout
+	}
+	linkTimeout, err := time.ParseDuration(timeoutStr)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid 'expires_in' format. Use Go duration format (e.g., '1h', '30m').")
+		return
+	}
+
+	link := &Link{
+		Key:          req.CustomKey,
+		Domain:       domain,
+		LinkType:     "url",
+		Data:         []byte(req.URL),
+		IsCompressed: false,
+		TimesAllowed: req.MaxUses,
+		ExpiresAt:    time.Now().Add(linkTimeout),
+	}
+
+	// Add password if provided.
+	if req.Password != "" {
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to hash password.")
+			return
+		}
+		link.PasswordHash.String = string(hashedPassword)
+		link.PasswordHash.Valid = true
+	}
+
+	// Create the link in the database.
+	if link.Key == "" {
+		// No custom key provided, generate a random one.
+		// Use a sensible default length for API-generated keys.
+		keyLength := config.LinkLen2
+		for i := 0; i < 5; i++ { // Retry a few times on collision.
+			link.Key, err = generateRandomKey(keyLength)
+			if err != nil {
+				respondWithError(w, http.StatusInternalServerError, "Failed to generate random key.")
+				return
+			}
+			err = createLinkInDB(r.Context(), *link)
+			if err == nil {
+				break // Success
+			}
+			if errors.Is(err, errKeyCollision) {
+				slogger.Debug("API key collision, retrying...", "key", link.Key)
+				continue
+			}
+			// Any other error is fatal for this request.
+			break
+		}
+	} else {
+		// Custom key was provided.
+		err = createLinkInDB(r.Context(), *link)
+	}
+
+	if err != nil {
+		if errors.Is(err, errKeyCollision) {
+			respondWithError(w, http.StatusConflict, "The requested custom_key is already in use by an active link.")
+		} else {
+			respondWithError(w, http.StatusInternalServerError, "Failed to create link in database.")
+		}
+		return
+	}
+
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+
+	response := apiCreateLinkResponse{
+		ShortURL:  fmt.Sprintf("%s://%s/%s", scheme, link.Domain, link.Key),
+		ExpiresAt: link.ExpiresAt,
+	}
+
+	respondWithJSON(w, http.StatusCreated, response)
 }
 
 // handleAdminLogout deletes the user's session from the database and clears the cookie.
@@ -996,6 +1180,77 @@ func handleAdminEditLinkPagePOST(w http.ResponseWriter, r *http.Request, domain,
 	http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
 }
 
+// handleAdminAPIKeysPage serves the API key management page and handles key generation/deletion.
+func handleAdminAPIKeysPage(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(userContextKey).(string)
+	if !ok {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not get user ID from context for API key management")
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := r.ParseForm(); err != nil {
+				logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "API key management form parse error: "+err.Error())
+				return
+			}
+
+			switch r.FormValue("action") {
+			case "generate":
+				newKey, err := createAPIKey(r.Context(), userID)
+				if err != nil {
+					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate new API key: "+err.Error())
+					return
+				}
+				// Redirect with the new key as a query param so it can be displayed.
+				http.Redirect(w, r, "/admin/api-keys?newKey="+url.QueryEscape(newKey.Token), http.StatusSeeOther)
+			case "delete":
+				tokenToDelete := r.FormValue("token")
+				if tokenToDelete == "" {
+					logErrors(w, r, "Token cannot be empty.", http.StatusBadRequest, "API key deletion request missing token")
+					return
+				}
+				if err := deleteAPIKey(r.Context(), tokenToDelete); err != nil {
+					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete API key: "+err.Error())
+					return
+				}
+				http.Redirect(w, r, "/admin/api-keys", http.StatusSeeOther)
+			default:
+				logErrors(w, r, "Invalid action.", http.StatusBadRequest, "Unknown API key management action")
+			}
+		})
+		csrfProtect(handler)(w, r)
+		return
+	}
+
+	// Handle GET request.
+	keys, err := getAPIKeysForUser(r.Context(), userID)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve API keys: "+err.Error())
+		return
+	}
+
+	apiKeysTmpl, ok := templateMap["admin_api_keys"]
+	if !ok {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_api_keys template")
+		return
+	}
+
+	pageVars := adminAPIKeysPageVars{
+		APIKeys:        keys,
+		NewKey:         r.URL.Query().Get("newKey"),
+		AdminJsSRIHash: adminJsSRIHash,
+		CssSRIHash:     cssSRIHash,
+		CSRFToken:      getOrSetCSRFToken(w, r),
+	}
+
+	addHeaders(w, r)
+	if err := apiKeysTmpl.Execute(w, pageVars); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_api_keys template: "+err.Error())
+	}
+	logOK(r, http.StatusOK)
+}
+
 func handleCSPReport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
@@ -1135,6 +1390,14 @@ func handleLoginPage(w http.ResponseWriter, r *http.Request) {
 			Secure:   r.TLS != nil, // Only send over HTTPS
 			SameSite: http.SameSiteLaxMode,
 			Path:     "/",
+		})
+
+		// Clear the anonymous CSRF cookie, as the token is now part of the session.
+		http.SetCookie(w, &http.Cookie{
+			Name:    "csrf_token",
+			Value:   "",
+			Expires: time.Unix(0, 0),
+			Path:    "/",
 		})
 
 		// Redirect to the admin dashboard.

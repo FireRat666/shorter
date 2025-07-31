@@ -108,7 +108,10 @@
                             {{range .Links}}
                             <tr>
                                 <td><input type="checkbox" name="link_keys" value="{{.Key}}" class="link-checkbox"></td>
-                                <td><a href="/{{.Key}}" target="_blank">{{.Key}}</a></td>
+                                <td>
+                                    <a href="/{{.Key}}" target="_blank">{{.Key}}</a>
+                                    {{if .PasswordHash.Valid}} <span title="Password Protected">🔒</span>{{end}}
+                                </td>
                                 <td>{{.LinkType}}</td>
                                 <td>{{.TimesUsed}}</td>
                                 <td>{{.ExpiresAt.Format "2006-01-02 15:04 MST"}}</td>

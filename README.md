@@ -27,6 +27,7 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
 *   **Customizable Theming**: Override the default HTML templates with your own to match your brand.
 *   **Deployment Ready**: Designed for modern deployment platforms like Render, with full support for configuration via environment variables.
 *   **Secure by Default**: Implements a strict Content Security Policy (CSP), CSRF protection on all forms, and other security headers to protect users.
+*   **Public API**: A RESTful API for programmatic link creation, authenticated with secure bearer tokens.
 *   **Resource Management**: Configurable size limits for URL and text submissions to prevent abuse and manage database size.
 
 ## Installation
@@ -130,9 +131,61 @@ Render will automatically set the `PORT` environment variable, which the applica
 ### 5. Deploy
 With the configuration and environment variables set, you can trigger your first deployment. The application will start, connect to the database, and be available at your Render URL.
 
+## Public API
+
+The service provides a simple RESTful API for programmatic link creation.
+
+### Authentication
+
+Authentication is handled via Bearer tokens. You can generate and manage your API keys from the "API Management" section of the admin panel.
+
+All API requests must include an `Authorization` header with your key:
+
+`Authorization: Bearer YOUR_API_KEY_HERE`
+
+### Endpoint: Create Link
+
+*   **URL**: `/api/v1/links`
+*   **Method**: `POST`
+*   **Headers**:
+    *   `Content-Type: application/json`
+    *   `Authorization: Bearer YOUR_API_KEY_HERE`
+*   **Body (JSON)**:
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `url` | string | Yes | The destination URL to shorten. |
+| `domain` | string | No | The domain to use for the short link. Defaults to the service's primary domain. |
+| `custom_key` | string | No | A specific key to use for the short link. If not provided, a random key will be generated. |
+| `expires_in` | string | No | A Go duration string (e.g., "1h", "30m", "72h"). Defaults to the shortest configured timeout. |
+| `max_uses` | int | No | The maximum number of times the link can be used. Defaults to unlimited (0). |
+| `password` | string | No | An optional password to protect the link. |
+
+#### Example Request (`curl`)
+
+```bash
+curl -X POST "https://shorter.example.com/api/v1/links" \
+-H "Authorization: Bearer YOUR_API_KEY_HERE" \
+-H "Content-Type: application/json" \
+-d '{
+  "url": "https://www.google.com",
+  "domain": "shorter.example.com",
+  "expires_in": "5m",
+  "custom_key": "my-api-link"
+}'
+```
+
+#### Example Success Response (`201 Created`)
+
+```json
+{
+  "short_url": "https://shorter.example.com/my-api-link",
+  "expires_at": "2025-07-31T14:05:00Z"
+}
+```
+
 ## Future Ideas
 *   **Two-Factor Authentication (2FA)**: Enhance admin panel security by requiring a second factor (e.g., TOTP) for login.
-*   **Public API**: Create a RESTful API for programmatic link creation and management, protected by API keys.
 *   **Abuse Reporting**: Add a form, protected by a captcha, for users to report links that violate the Terms of Service.
 
 ## License

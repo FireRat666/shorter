@@ -40,6 +40,9 @@ var defaultAdminStatsHTML string
 //go:embed embedded/login.default.tmpl
 var defaultLoginHTML string
 
+//go:embed embedded/admin_api_keys.default.tmpl
+var defaultAdminAPIKeysHTML string
+
 //go:embed embedded/password_prompt.default.tmpl
 var defaultPasswordPromptHTML string
 
@@ -58,6 +61,7 @@ func initTemplates() error {
 	loadTemplate("admin_edit_link", defaultAdminEditLinkHTML)
 	loadTemplate("error", defaultErrorHTML)
 	loadTemplate("login", defaultLoginHTML)
+	loadTemplate("admin_api_keys", defaultAdminAPIKeysHTML)
 	loadTemplate("password_prompt", defaultPasswordPromptHTML)
 	loadTemplate("admin_stats", defaultAdminStatsHTML)
 

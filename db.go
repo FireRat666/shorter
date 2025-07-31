@@ -89,6 +89,17 @@ func setupDB(databaseURL string) error {
 		return fmt.Errorf("failed to create clicks schema: %w", err)
 	}
 
+	// Create the api_keys table for API authentication.
+	schemaAPIKeys := `
+	CREATE TABLE IF NOT EXISTS api_keys (
+		token TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);`
+	if _, err = db.ExecContext(ctx, schemaAPIKeys); err != nil {
+		return fmt.Errorf("failed to create api_keys schema: %w", err)
+	}
+
 	// --- Schema Migrations ---
 	// This section handles simple, additive schema changes to avoid breaking existing deployments.
 
@@ -110,6 +121,27 @@ func setupDB(databaseURL string) error {
 		alterQuery := `ALTER TABLE links ADD COLUMN password_hash TEXT;`
 		if _, err = db.ExecContext(ctx, alterQuery); err != nil {
 			return fmt.Errorf("failed to apply schema migration for password_hash column: %w", err)
+		}
+		slogger.Info("Schema migration applied successfully.")
+	}
+
+	// Migration 2: Add csrf_token column to sessions table if it doesn't exist.
+	checkCSRFColumnQuery := `
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_name = 'sessions' AND column_name = 'csrf_token'
+		);`
+	err = db.QueryRowContext(ctx, checkCSRFColumnQuery).Scan(&columnExists)
+	if err != nil {
+		return fmt.Errorf("failed to check for csrf_token column existence: %w", err)
+	}
+
+	if !columnExists {
+		slogger.Info("Schema migration: adding 'csrf_token' column to 'sessions' table...")
+		alterQuery := `ALTER TABLE sessions ADD COLUMN csrf_token TEXT NOT NULL DEFAULT '';`
+		if _, err = db.ExecContext(ctx, alterQuery); err != nil {
+			return fmt.Errorf("failed to apply schema migration for csrf_token column: %w", err)
 		}
 		slogger.Info("Schema migration applied successfully.")
 	}
@@ -243,7 +275,7 @@ func deleteExpiredSessionsFromDB(ctx context.Context) (int64, error) {
 // getLinksForDomain retrieves all active links for a specific domain, ordered by creation date.
 func getLinksForDomain(ctx context.Context, domain string) ([]Link, error) {
 	query := `
-		SELECT key, link_type, times_used, expires_at
+		SELECT key, link_type, times_used, expires_at, password_hash
 		FROM links
 		WHERE domain = $1 AND expires_at > NOW()
 		ORDER BY created_at DESC;`
@@ -263,6 +295,7 @@ func getLinksForDomain(ctx context.Context, domain string) ([]Link, error) {
 			&link.LinkType,
 			&link.TimesUsed,
 			&link.ExpiresAt,
+			&link.PasswordHash,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan link row: %w", err)
 		}
@@ -614,4 +647,69 @@ func deleteSessionByToken(ctx context.Context, token string) error {
 	query := `DELETE FROM sessions WHERE token = $1;`
 	_, err := db.ExecContext(ctx, query, token)
 	return err
+}
+
+// --- API Key Management ---
+
+// createAPIKey generates a new API key for a user and stores it in the database.
+func createAPIKey(ctx context.Context, userID string) (*APIKey, error) {
+	token, err := generateSessionToken() // We can reuse the same secure token generator.
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate API key token: %w", err)
+	}
+
+	apiKey := &APIKey{
+		Token:  token,
+		UserID: userID,
+	}
+
+	query := `INSERT INTO api_keys (token, user_id) VALUES ($1, $2);`
+	_, err = db.ExecContext(ctx, query, apiKey.Token, apiKey.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert API key into database: %w", err)
+	}
+
+	return apiKey, nil
+}
+
+// getAPIKeysForUser retrieves all API keys associated with a specific user.
+func getAPIKeysForUser(ctx context.Context, userID string) ([]APIKey, error) {
+	query := `SELECT token, user_id, created_at FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC;`
+	rows, err := db.QueryContext(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query API keys for user %s: %w", userID, err)
+	}
+	defer rows.Close()
+
+	var keys []APIKey
+	for rows.Next() {
+		var key APIKey
+		if err := rows.Scan(&key.Token, &key.UserID, &key.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan API key row: %w", err)
+		}
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
+// deleteAPIKey removes a specific API key from the database.
+func deleteAPIKey(ctx context.Context, token string) error {
+	query := `DELETE FROM api_keys WHERE token = $1;`
+	_, err := db.ExecContext(ctx, query, token)
+	return err
+}
+
+// getAPIKeyByToken retrieves a user's API key from the database by the token string.
+func getAPIKeyByToken(ctx context.Context, token string) (*APIKey, error) {
+	apiKey := &APIKey{}
+	query := `SELECT token, user_id, created_at FROM api_keys WHERE token = $1;`
+
+	err := db.QueryRowContext(ctx, query, token).Scan(&apiKey.Token, &apiKey.UserID, &apiKey.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil // No key found, not a fatal error.
+		}
+		return nil, fmt.Errorf("failed to get API key from database: %w", err)
+	}
+	return apiKey, nil
 }
