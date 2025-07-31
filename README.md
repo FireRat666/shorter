@@ -26,7 +26,7 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
 *   **Advanced Analytics**: A dedicated statistics page provides a comprehensive overview of site activity. All sections load on-demand for a fast user experience and feature:
     *   Overall site-wide totals for active links and clicks.
     *   Recent activity (links created, expired, clicks) over various timeframes.
-    *   A "Top 10" list of the most clicked links.
+    *   A paginated viewer for all active links, sorted by popularity.
     *   A breakdown of active links per creator, including individual API keys.
     *   A per-domain statistics viewer.
     *   A feature to safely reset all historical statistics.
@@ -205,7 +205,6 @@ curl -X POST "https://shorter.example.com/api/v1/links" \
 *   **Two-Factor Authentication (2FA)**: Enhance admin panel security by requiring a second factor (e.g., TOTP) for login.
 *   **Abuse Reporting**: Add a form, protected by a captcha, for users to report links that violate the Terms of Service.
 *   **Data Visualization**: Add charts to the statistics page to visualize recent activity.
-*   **Pagination**: Implement pagination for data-heavy tables in the admin panel, such as the "Top Links" list.
 
 ## License
 

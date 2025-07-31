@@ -27,7 +27,7 @@
         </div>
 
         <div class="tos">
-            <h2>Top 10 Most Clicked Links</h2>
+            <h2>Top Links by Clicks</h2>
             <div id="top-links-container">
                 <button id="load-top-links" class="button">Load Top Links</button>
             </div>
@@ -98,11 +98,6 @@
                 '/admin/stats/recent-activity'
             );
             loadStatSection(
-                'load-top-links',
-                'top-links-container',
-                '/admin/stats/top-links'
-            );
-            loadStatSection(
                 'load-creator-stats',
                 'creator-stats-container',
                 '/admin/stats/creator-stats'
@@ -149,6 +144,33 @@
                     }); // End of fetch chain
             }); // End of loadDomainStatsBtn event listener
 
+        });
+
+        // Custom logic for the paginated Top Links section
+        const topLinksContainer = document.getElementById('top-links-container');
+        const loadTopLinksBtn = document.getElementById('load-top-links');
+
+        function fetchTopLinks(page = 1) {
+            topLinksContainer.innerHTML = '<p>Loading...</p>';
+            fetch(`/admin/stats/top-links?page=${page}`)
+                .then(response => response.ok ? response.text() : Promise.reject('Failed to load top links.'))
+                .then(html => {
+                    topLinksContainer.innerHTML = html;
+                })
+                .catch(error => {
+                    console.error('Error loading top links:', error);
+                    topLinksContainer.innerHTML = `<p class="error">Failed to load top links data.</p>`;
+                });
+        }
+
+        loadTopLinksBtn.addEventListener('click', () => fetchTopLinks(1));
+
+        // Use event delegation to handle clicks on pagination buttons that are loaded dynamically.
+        topLinksContainer.addEventListener('click', (event) => {
+            if (event.target.matches('.pagination-button')) {
+                const page = event.target.dataset.page;
+                fetchTopLinks(page);
+            }
         });
     </script>
 </body>

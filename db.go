@@ -926,16 +926,27 @@ func updateLink(ctx context.Context, link Link) error {
 	return err
 }
 
-// getTopLinks retrieves the top N most clicked active links.
-func getTopLinks(ctx context.Context, limit int) ([]Link, error) {
+// getTotalActiveLinkCount returns the total number of active links.
+func getTotalActiveLinkCount(ctx context.Context) (int, error) {
+	var count int
+	query := `SELECT COUNT(*) FROM links WHERE expires_at > NOW();`
+	err := db.QueryRowContext(ctx, query).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get total active link count: %w", err)
+	}
+	return count, nil
+}
+
+// getTopLinks retrieves a paginated list of the most clicked active links.
+func getTopLinks(ctx context.Context, limit, offset int) ([]Link, error) {
 	query := `
 		SELECT key, domain, link_type, times_used, expires_at
 		FROM links
 		WHERE expires_at > NOW()
 		ORDER BY times_used DESC
-		LIMIT $1;`
+		LIMIT $1 OFFSET $2;`
 
-	rows, err := db.QueryContext(ctx, query, limit)
+	rows, err := db.QueryContext(ctx, query, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query top links: %w", err)
 	}

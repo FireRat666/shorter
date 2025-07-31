@@ -431,3 +431,16 @@ select.is-overridden {
 .stats-result-container .stats-container {
     margin-top: 0;
 }
+
+.pagination-controls {
+    margin-top: 1em;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.pagination-button {
+    background-color: #4CAF50; /* A slightly different green */
+    color: white;
+    padding: 0.5em 1em;
+}

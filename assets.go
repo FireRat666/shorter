@@ -83,6 +83,12 @@ func initTemplates() error {
 		"add": func(a, b int) int {
 			return a + b
 		},
+		"sub": func(a, b int) int {
+			return a - b
+		},
+		"mul": func(a, b int) int {
+			return a * b
+		},
 	}
 
 	loadTemplate("index", defaultIndexHTML, funcMap)

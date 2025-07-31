@@ -1,5 +1,5 @@
 {{if .TopLinks}}
-    <table>
+    <table class="top-links-table">
         <thead>
             <tr>
                 <th>Rank</th>
@@ -11,7 +11,7 @@
         <tbody>
             {{range $i, $link := .TopLinks}}
             <tr>
-                <td>{{add $i 1}}</td>
+                <td>{{add (mul (sub $.CurrentPage 1) 10) (add $i 1)}}</td>
                 <td><a href="/{{$link.Key}}" target="_blank">{{$link.Key}}</a></td>
                 <td>{{$link.Domain}}</td>
                 <td>{{$link.TimesUsed}}</td>
@@ -19,6 +19,15 @@
             {{end}}
         </tbody>
     </table>
+    <div class="pagination-controls">
+        {{if .HasPrev}}
+            <button class="pagination-button" data-page="{{sub .CurrentPage 1}}">&laquo; Previous</button>
+        {{end}}
+        <span>Page {{.CurrentPage}} of {{.TotalPages}}</span>
+        {{if .HasNext}}
+            <button class="pagination-button" data-page="{{add .CurrentPage 1}}">Next &raquo;</button>
+        {{end}}
+    </div>
 {{else}}
     <p>No link data available to determine top links.</p>
 {{end}}

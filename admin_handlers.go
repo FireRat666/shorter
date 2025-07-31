@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -226,7 +227,21 @@ func adminStatsOverallHandler(w http.ResponseWriter, r *http.Request) {
 
 // adminStatsTopLinksHandler handles the async request for the "Top Links" partial.
 func adminStatsTopLinksHandler(w http.ResponseWriter, r *http.Request) {
-	topLinks, err := getTopLinks(r.Context(), 10)
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	const limit = 10
+	offset := (page - 1) * limit
+
+	totalLinks, err := getTotalActiveLinkCount(r.Context())
+	if err != nil {
+		slogger.Error("Failed to get total active link count for pagination", "error", err)
+		http.Error(w, "Failed to load link data.", http.StatusInternalServerError)
+		return
+	}
+
+	topLinks, err := getTopLinks(r.Context(), limit, offset)
 	if err != nil {
 		// We don't use logErrors here because we want to return a partial, not a full error page.
 		// A simple 500 with a log message is sufficient. The JS will catch the non-200 response.
@@ -235,11 +250,23 @@ func adminStatsTopLinksHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	totalPages := int(math.Ceil(float64(totalLinks) / float64(limit)))
+
 	// Create a minimal data struct for the partial template.
 	data := struct {
-		TopLinks []Link
+		TopLinks    []Link
+		TotalLinks  int
+		CurrentPage int
+		TotalPages  int
+		HasPrev     bool
+		HasNext     bool
 	}{
-		TopLinks: topLinks,
+		TopLinks:    topLinks,
+		TotalLinks:  totalLinks,
+		CurrentPage: page,
+		TotalPages:  totalPages,
+		HasPrev:     page > 1,
+		HasNext:     page < totalPages,
 	}
 
 	// Render the partial template directly.
