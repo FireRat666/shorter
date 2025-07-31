@@ -47,7 +47,9 @@ func handleRoot(mux *http.ServeMux) {
 		case http.MethodPost:
 			// If the POST is to the root path, it's a new link creation.
 			if r.URL.Path == "/" {
-				csrfProtect(handlePOST)(w, r) // Protect link creation
+				// Chain the middlewares: rate limit -> csrf -> handler
+				finalHandler := anonymousRateLimitMiddleware(csrfProtect(handlePOST))
+				finalHandler.ServeHTTP(w, r)
 			} else {
 				// Otherwise, it's likely a password submission for an existing link.
 				handleGET(w, r)
@@ -434,6 +436,16 @@ func apiAuth(next http.HandlerFunc) http.HandlerFunc {
 		if apiKey == nil {
 			respondWithError(w, http.StatusUnauthorized, "Invalid API key")
 			return
+		}
+
+		// Enforce API rate limiting based on the token.
+		if config.APIRateLimit.Enabled {
+			limiter := getClientByToken(apiKey.Token)
+			if !limiter.Allow() {
+				// Use a standard 429 response without a JSON body for simplicity.
+				http.Error(w, "429 Too Many Requests", http.StatusTooManyRequests)
+				return
+			}
 		}
 
 		// Add the API token itself to the context. This allows us to track link
@@ -854,57 +866,64 @@ func render2FAPage(w http.ResponseWriter, r *http.Request, errorMsg string) {
 }
 
 func serveIndexPage(w http.ResponseWriter, r *http.Request) {
-	subdomainCfg := getSubdomainConfig(r.Host)
-
 	// Check for quick add feature: a GET request to the root with a query string.
 	if r.URL.RawQuery != "" {
-		formURL := r.URL.RawQuery // The raw query is the URL.
+		// This is a Quick Add request. We must apply the anonymous rate limiter.
+		quickAddHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			subdomainCfg := getSubdomainConfig(r.Host)
+			formURL := r.URL.RawQuery // The raw query is the URL.
 
-		// Prepend https:// if no scheme is present.
-		if !strings.HasPrefix(formURL, "http://") && !strings.HasPrefix(formURL, "https://") {
-			formURL = "https://" + formURL
-		}
-
-		// Validate the final URL structure.
-		if _, err := url.ParseRequestURI(formURL); err != nil {
-			logErrors(w, r, "The provided URL appears to be invalid.", http.StatusBadRequest, "Invalid quick-add URL after normalization")
-			return
-		}
-
-		// Check the URL against the blocklist.
-		isBlocked, err := isURLBlockedByDNSBL(formURL)
-		if err != nil || isBlocked {
-			if err != nil {
-				slogger.Error("DNSBL check failed, blocking submission", "url", formURL, "error", err)
+			// Prepend https:// if no scheme is present.
+			if !strings.HasPrefix(formURL, "http://") && !strings.HasPrefix(formURL, "https://") {
+				formURL = "https://" + formURL
 			}
-			logErrors(w, r, "The provided URL is not allowed.", http.StatusBadRequest, "Blocked malicious URL submission")
-			return
-		}
 
-		linkTimeout, err := time.ParseDuration(subdomainCfg.LinkLen1Timeout)
-		if err != nil {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Error parsing default link timeout duration: "+err.Error())
-			return
-		}
+			// Validate the final URL structure.
+			if _, err := url.ParseRequestURI(formURL); err != nil {
+				logErrors(w, r, "The provided URL appears to be invalid.", http.StatusBadRequest, "Invalid quick-add URL after normalization")
+				return
+			}
 
-		scheme := "http"
-		if r.TLS != nil {
-			scheme = "https"
-		}
+			// Check the URL against the blocklist.
+			isBlocked, err := isURLBlockedByDNSBL(formURL)
+			if err != nil || isBlocked {
+				if err != nil {
+					slogger.Error("DNSBL check failed, blocking submission", "url", formURL, "error", err)
+				}
+				logErrors(w, r, "The provided URL is not allowed.", http.StatusBadRequest, "Blocked malicious URL submission")
+				return
+			}
 
-		link := &Link{
-			Domain:       r.Host,
-			LinkType:     "url",
-			Data:         []byte(formURL),
-			IsCompressed: false,
-			TimesAllowed: 0, // Default to unlimited uses within the timeout period.
-			ExpiresAt:    time.Now().Add(linkTimeout),
-		}
+			linkTimeout, err := time.ParseDuration(subdomainCfg.LinkLen1Timeout)
+			if err != nil {
+				logErrors(w, r, errServerError, http.StatusInternalServerError, "Error parsing default link timeout duration: "+err.Error())
+				return
+			}
 
-		createAndRespond(w, r, link, config.LinkLen1, scheme)
+			scheme := "http"
+			if r.TLS != nil {
+				scheme = "https"
+			}
+
+			link := &Link{
+				Domain:       r.Host,
+				LinkType:     "url",
+				Data:         []byte(formURL),
+				IsCompressed: false,
+				TimesAllowed: 0, // Default to unlimited uses within the timeout period.
+				ExpiresAt:    time.Now().Add(linkTimeout),
+			}
+
+			createAndRespond(w, r, link, config.LinkLen1, scheme)
+		})
+
+		// Apply the middleware to our handler.
+		anonymousRateLimitMiddleware(quickAddHandler).ServeHTTP(w, r)
 		return
 	}
 
+	// If there's no query string, just serve the main page.
+	subdomainCfg := getSubdomainConfig(r.Host)
 	csrfToken := getOrSetCSRFToken(w, r)
 
 	indexTmpl, ok := templateMap["index"]

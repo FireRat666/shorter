@@ -28,7 +28,7 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
 *   **Advanced Analytics**: A dedicated statistics page provides a comprehensive overview of site activity. All sections load on-demand for a fast user experience and feature:
     *   Overall site-wide totals for active links and clicks.
     *   Recent activity (links created, expired, clicks) over various timeframes.
-    *   A paginated viewer for all active links, sorted by popularity.
+    *   A recent activity chart and a paginated viewer for all active links, sorted by popularity.
     *   A breakdown of active links per creator, including individual API keys.
     *   A per-domain statistics viewer.
     *   A feature to safely reset all historical statistics.
@@ -38,6 +38,7 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
 *   **Secure by Default**: Implements a strict Content Security Policy (CSP), CSRF protection on all forms, and other security headers to protect users.
 *   **Malware Protection**: Integrated with DNS-based blocklists (DNSBL) to prevent shortening of malicious URLs.
 *   **Persistent Storage**: Uses a PostgreSQL backend to store all links, sessions, and configurations.
+*   **API Rate Limiting**: Differentiated rate limits for anonymous users and authenticated API clients to prevent abuse and ensure service stability.
 *   **Resource Management**: Configurable size limits for URL and text submissions to prevent abuse and manage database size.
 *   **Deployment Ready**: Designed for modern deployment platforms like Render, with full support for configuration via environment variables.
 
@@ -234,7 +235,6 @@ curl -X POST "https://shorter.example.com/api/v1/links" \
 *   **Data Visualization**: Continue to expand the data visualization capabilities on the statistics page with more charts and interactive elements.
 *   **User Accounts**: Allow non-admin users to register for accounts to manage their own links and API keys, turning the service into a multi-tenant platform.
 *   **Link Descriptions**: Add a description field to links to make them easier to identify and manage in the admin panel.
-*   **API Rate Limiting**: Implement rate limiting on the public API to prevent abuse and ensure service stability.
 *   **API Expansion**: Expand the API to allow reading, updating, and deleting links for more powerful programmatic administration.
 *   **Health Check Endpoint**: Create a dedicated `/health` endpoint for automated monitoring by deployment platforms.
 *   **Admin Audit Log**: Track all administrative actions (e.g., who deleted a link, changed a setting, or generated an API key) for security and accountability.

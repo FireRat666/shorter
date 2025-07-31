@@ -96,6 +96,20 @@ MalwareProtection:
   # Recommended for stability.
   CustomDNSServers: ["1.1.1.1:53", "8.8.8.8:53"]
 
+# -----------------------------------------------------------------------------
+# Rate Limiting
+# -----------------------------------------------------------------------------
+# Settings for anonymous users creating links via the web form.
+AnonymousRateLimit:
+  Enabled: true
+  # Allow one link creation every 30 seconds per IP address.
+  Every: "30s"
+
+# Settings for authenticated API clients.
+APIRateLimit:
+  Enabled: true
+  Rate: 2      # Allow 2 requests per second on average per API key.
+  Burst: 5     # Allow a burst of up to 5 requests.
 
 # -----------------------------------------------------------------------------
 # Admin & Session Management

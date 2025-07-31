@@ -30,6 +30,8 @@ type Config struct {
 	SessionTimeoutRememberMe string                     `yaml:"SessionTimeoutRememberMe"`
 	CleanupInterval          string                     `yaml:"CleanupInterval"`
 	CSP                      string                     `yaml:"CSP"`
+	AnonymousRateLimit       AnonymousRateLimitConfig   `yaml:"AnonymousRateLimit"`
+	APIRateLimit             APIRateLimitConfig         `yaml:"APIRateLimit"`
 	Admin                    AdminConfig                `yaml:"Admin"`
 	MalwareProtection        MalwareProtectionConfig    `yaml:"MalwareProtection"`
 	Defaults                 SubdomainConfig            `yaml:"Defaults"`
@@ -49,6 +51,19 @@ type MalwareProtectionConfig struct {
 	Enabled          bool     `yaml:"Enabled"`
 	DNSBLServers     []string `yaml:"DNSBLServers"`
 	CustomDNSServers []string `yaml:"CustomDNSServers"`
+}
+
+// AnonymousRateLimitConfig holds settings for anonymous user rate limiting.
+type AnonymousRateLimitConfig struct {
+	Enabled bool   `yaml:"Enabled"`
+	Every   string `yaml:"Every"` // e.g., "30s", "1m"
+}
+
+// APIRateLimitConfig holds settings for the API rate limiter.
+type APIRateLimitConfig struct {
+	Enabled bool    `yaml:"Enabled"`
+	Rate    float64 `yaml:"Rate"`  // Requests per second
+	Burst   int     `yaml:"Burst"` // Maximum burst size
 }
 
 // SubdomainConfig holds settings that can be applied globally or per-subdomain.

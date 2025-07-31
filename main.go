@@ -121,6 +121,9 @@ func main() {
 	// Start the periodic cleanup job in the background.
 	go startCleanupTicker()
 
+	// Start the rate limiter cleanup job in the background.
+	go cleanupClients()
+
 	// 9. Set up a channel to listen for OS signals for graceful shutdown.
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
