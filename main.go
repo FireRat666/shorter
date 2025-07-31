@@ -85,6 +85,7 @@ func main() {
 	mux := http.NewServeMux()
 	handleRoot(mux)
 	mux.HandleFunc("/login", handleLoginPage)
+	mux.HandleFunc("/qr", handleQRCodePage)
 	handleAdminRoutes(mux)
 	handleRobots(mux)
 	handleImages(mux)

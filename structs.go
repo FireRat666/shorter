@@ -82,13 +82,23 @@ type Session struct {
 	ExpiresAt time.Time
 }
 
-type showLinkVars struct {
-	Domain        string
-	Data          string
-	Timeout       string
-	TimesAllowed  int
-	RemainingUses int
-	CssSRIHash    string
+type linkCreatedPageVars struct {
+	Domain         string
+	DestinationURL string
+	ShortURL       string
+	Timeout        string
+	TimesAllowed   int
+	RemainingUses  int
+	CssSRIHash     string
+}
+
+type showRedirectPageVars struct {
+	Domain         string
+	DestinationURL string
+	Timeout        string
+	TimesAllowed   int
+	RemainingUses  int
+	CssSRIHash     string
 }
 
 type showTextVars struct {

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/FireRat666/shorter/web"
+	"github.com/skip2/go-qrcode"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -1060,22 +1061,23 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// This is a standard URL shortener request. Render the intermediate page.
-		w.Header().Add("Content-Type", "text/html; charset=utf-8")
-		t, ok := templateMap["showLink"]
+		t, ok := templateMap["show_redirect"]
 		if !ok {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not find showLink template")
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not find show_redirect template")
 			return
 		}
-		tmplArgs := showLinkVars{
-			Domain:        scheme + "://" + r.Host,
-			Data:          string(lnk.Data),
-			Timeout:       lnk.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
-			TimesAllowed:  lnk.TimesAllowed,
-			RemainingUses: lnk.TimesAllowed - (lnk.TimesUsed + 1),
-			CssSRIHash:    cssSRIHash,
+
+		w.Header().Add("Content-Type", "text/html; charset=utf-8")
+		tmplArgs := showRedirectPageVars{
+			Domain:         scheme + "://" + r.Host,
+			DestinationURL: string(lnk.Data),
+			Timeout:        lnk.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
+			TimesAllowed:   lnk.TimesAllowed,
+			RemainingUses:  lnk.TimesAllowed - (lnk.TimesUsed + 1),
+			CssSRIHash:     cssSRIHash,
 		}
 		if err := t.Execute(w, tmplArgs); err != nil {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute showLink template: "+err.Error())
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute show_redirect template: "+err.Error())
 			return
 		}
 		logOK(r, http.StatusOK)
@@ -1196,28 +1198,62 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 		return
 	}
 
-	// Respond to the user with the success page.
-	addHeaders(w, r)
-	w.Header().Add("Content-Type", "text/html; charset=utf-8")
-	t, ok := templateMap["showLink"]
+	t, ok := templateMap["link_created"]
 	if !ok {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not find showLink template")
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not find link_created template")
 		return
 	}
 
+	// Respond to the user with the success page.
+	addHeaders(w, r)
+	w.Header().Add("Content-Type", "text/html; charset=utf-8")
 	fullURL := scheme + "://" + r.Host + "/" + link.Key
-	tmplArgs := showLinkVars{
-		Domain:        scheme + "://" + r.Host,
-		Data:          fullURL,
-		Timeout:       link.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
-		TimesAllowed:  link.TimesAllowed,
-		RemainingUses: link.TimesAllowed, // On creation, remaining uses equals times allowed.
-		CssSRIHash:    cssSRIHash,
+	tmplArgs := linkCreatedPageVars{
+		Domain:         scheme + "://" + r.Host,
+		DestinationURL: string(link.Data), // The original long URL is the destination.
+		ShortURL:       fullURL,           // The newly created short link.
+		Timeout:        link.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
+		TimesAllowed:   link.TimesAllowed,
+		RemainingUses:  link.TimesAllowed, // On creation, remaining uses equals times allowed.
+		CssSRIHash:     cssSRIHash,
 	}
 	if err := t.Execute(w, tmplArgs); err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute showLink template: "+err.Error())
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute link_created template: "+err.Error())
 	}
 	logOK(r, http.StatusCreated)
+}
+
+// handleQRCodePage generates and serves a QR code for a given URL.
+func handleQRCodePage(w http.ResponseWriter, r *http.Request) {
+	urlToEncode := r.URL.Query().Get("url")
+	if urlToEncode == "" {
+		http.Error(w, "URL parameter is missing", http.StatusBadRequest)
+		return
+	}
+
+	// Security check: Ensure the URL belongs to one of our configured domains.
+	parsedURL, err := url.Parse(urlToEncode)
+	if err != nil {
+		http.Error(w, "Invalid URL format", http.StatusBadRequest)
+		return
+	}
+	if _, ok := config.Subdomains[parsedURL.Host]; !ok {
+		http.Error(w, "QR codes can only be generated for this service's domains.", http.StatusForbidden)
+		return
+	}
+
+	// Generate the QR code as a PNG image. 256x256 is a good default size.
+	png, err := qrcode.Encode(urlToEncode, qrcode.Medium, 256)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate QR code: "+err.Error())
+		return
+	}
+
+	// Serve the PNG image.
+	addHeaders(w, r)
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "max-age=3600, public") // Cache for 1 hour
+	w.Write(png)
 }
 
 func handleCSS(mux *http.ServeMux) error {

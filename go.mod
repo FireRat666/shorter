@@ -7,6 +7,7 @@ toolchain go1.24.5
 require (
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/kr/pretty v0.3.1
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	golang.org/x/crypto v0.40.0
 	gopkg.in/yaml.v2 v2.4.0
 )

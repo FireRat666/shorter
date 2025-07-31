@@ -10,8 +10,11 @@ import (
 //go:embed embedded/index.default.tmpl
 var defaultIndexHTML string
 
-//go:embed embedded/showLink.default.tmpl
-var defaultShowLinkHTML string
+//go:embed embedded/link_created.default.tmpl
+var defaultLinkCreatedHTML string
+
+//go:embed embedded/show_redirect.default.tmpl
+var defaultShowRedirectHTML string
 
 //go:embed embedded/showText.default.tmpl
 var defaultShowTextHTML string
@@ -43,7 +46,8 @@ func initTemplates() error {
 	templateMap = make(map[string]*template.Template)
 
 	loadTemplate("index", defaultIndexHTML)
-	loadTemplate("showLink", defaultShowLinkHTML)
+	loadTemplate("link_created", defaultLinkCreatedHTML)
+	loadTemplate("show_redirect", defaultShowRedirectHTML)
 	loadTemplate("showText", defaultShowTextHTML)
 	loadTemplate("admin", defaultAdminHTML)
 	loadTemplate("admin_edit", defaultAdminEditHTML)
