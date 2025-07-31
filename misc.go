@@ -10,6 +10,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -234,6 +236,21 @@ func formatFileSize(size int64) string {
 		return fmt.Sprintf("%.2f KB", float64(size)/float64(KB))
 	}
 	return fmt.Sprintf("%d B", size)
+}
+
+// deleteUploadedFile removes a file from the uploads directory.
+// It logs a warning if the deletion fails for any reason other than the file not existing.
+func deleteUploadedFile(key string) {
+	if key == "" {
+		return
+	}
+	filePath := filepath.Join(config.BaseDir, "uploads", key)
+	err := os.Remove(filePath)
+	if err != nil && !os.IsNotExist(err) {
+		slogger.Warn("Failed to delete uploaded file", "path", filePath, "error", err)
+	} else if err == nil {
+		slogger.Info("Successfully deleted uploaded file", "path", filePath)
+	}
 }
 
 // logErrors will write the error to the log file and send an HTTP error to the user.

@@ -253,7 +253,7 @@ func deleteExpiredLinksFromDB(ctx context.Context) (int64, error) {
 	defer tx.Rollback()
 
 	// First, select the links that are about to be deleted to log them.
-	querySelect := `SELECT key, domain FROM links WHERE expires_at <= NOW() FOR UPDATE;`
+	querySelect := `SELECT key, domain, link_type FROM links WHERE expires_at <= NOW() FOR UPDATE;`
 	rows, err := tx.QueryContext(ctx, querySelect)
 	if err != nil {
 		return 0, fmt.Errorf("failed to select expired links for logging: %w", err)
@@ -263,7 +263,7 @@ func deleteExpiredLinksFromDB(ctx context.Context) (int64, error) {
 	var linksToDelete []Link
 	for rows.Next() {
 		var link Link
-		if err := rows.Scan(&link.Key, &link.Domain); err != nil {
+		if err := rows.Scan(&link.Key, &link.Domain, &link.LinkType); err != nil {
 			return 0, fmt.Errorf("failed to scan expired link for logging: %w", err)
 		}
 		linksToDelete = append(linksToDelete, link)
@@ -274,6 +274,13 @@ func deleteExpiredLinksFromDB(ctx context.Context) (int64, error) {
 
 	if len(linksToDelete) == 0 {
 		return 0, nil // Nothing to do.
+	}
+
+	// Delete any associated uploaded files before modifying the database.
+	for _, link := range linksToDelete {
+		if link.LinkType == "file" {
+			deleteUploadedFile(link.Key)
+		}
 	}
 
 	// Log the expiration events before deleting.
@@ -713,6 +720,11 @@ func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 	// Check for expiration or overuse in the application logic.
 	if time.Now().After(link.ExpiresAt) || (link.TimesAllowed > 0 && link.TimesUsed >= link.TimesAllowed) {
 		// The link is expired or used up. Log the expiration event and then delete it, all in the same transaction.
+		// If it's a file link, delete the associated file from disk.
+		if link.LinkType == "file" {
+			deleteUploadedFile(link.Key)
+		}
+
 		if err := logExpirationEventsInTx(ctx, tx, []Link{*link}); err != nil {
 			slogger.Error("Failed to log just-in-time expiration event", "key", key, "domain", domain, "error", err)
 			// Don't block deletion on logging failure, but the defer will rollback the transaction.
