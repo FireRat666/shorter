@@ -243,7 +243,7 @@ func deleteExpiredSessionsFromDB(ctx context.Context) (int64, error) {
 // getLinksForDomain retrieves all active links for a specific domain, ordered by creation date.
 func getLinksForDomain(ctx context.Context, domain string) ([]Link, error) {
 	query := `
-		SELECT key, link_type, data, is_compressed, times_allowed, times_used, expires_at, created_at
+		SELECT key, link_type, times_used, expires_at
 		FROM links
 		WHERE domain = $1 AND expires_at > NOW()
 		ORDER BY created_at DESC;`
@@ -261,12 +261,8 @@ func getLinksForDomain(ctx context.Context, domain string) ([]Link, error) {
 		if err := rows.Scan(
 			&link.Key,
 			&link.LinkType,
-			&link.Data,
-			&link.IsCompressed,
-			&link.TimesAllowed,
 			&link.TimesUsed,
 			&link.ExpiresAt,
-			&link.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan link row: %w", err)
 		}
