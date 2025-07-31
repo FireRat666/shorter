@@ -421,3 +421,13 @@ select.is-overridden {
     font-size: 0.9em;
     color: #aaa;
 }
+
+.stats-result-container {
+    margin-top: 1em;
+}
+
+/* When domain stats are loaded, the result container already provides margin. */
+/* Remove the top margin from the inner stats-container to prevent double margins. */
+.stats-result-container .stats-container {
+    margin-top: 0;
+}

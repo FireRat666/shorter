@@ -596,6 +596,28 @@ func getCreatorStats(ctx context.Context) ([]CreatorStats, error) {
 	return stats, rows.Err()
 }
 
+// getStatsForDomain retrieves statistics for a single specified domain.
+func getStatsForDomain(ctx context.Context, domain string) (*DomainStats, error) {
+	stats := &DomainStats{Domain: domain}
+	var err error
+
+	// 1. Get active link count for the domain.
+	queryLinks := `SELECT COUNT(*) FROM links WHERE domain = $1 AND expires_at > NOW();`
+	err = db.QueryRowContext(ctx, queryLinks, domain).Scan(&stats.ActiveLinks)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to query active links for domain %s: %w", domain, err)
+	}
+
+	// 2. Get total click count for the domain.
+	queryClicks := `SELECT COUNT(*) FROM clicks WHERE link_domain = $1;`
+	err = db.QueryRowContext(ctx, queryClicks, domain).Scan(&stats.TotalClicks)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("failed to query clicks for domain %s: %w", domain, err)
+	}
+
+	return stats, nil
+}
+
 // errKeyCollision is a sentinel error used to indicate a key collision with an *active* link.
 var errKeyCollision = errors.New("active key collision")
 

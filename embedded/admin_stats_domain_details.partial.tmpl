@@ -1,0 +1,14 @@
+{{if .Stats}}
+    <div class="stats-container">
+        <div class="stat-box">
+            <span class="stat-value">{{.Stats.ActiveLinks}}</span>
+            <span class="stat-label">Active Links</span>
+        </div>
+        <div class="stat-box">
+            <span class="stat-value">{{.Stats.TotalClicks}}</span>
+            <span class="stat-label">Total Clicks</span>
+        </div>
+    </div>
+{{else}}
+    <p>No statistics found for this domain.</p>
+{{end}}

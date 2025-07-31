@@ -21,8 +21,14 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
     *   **Subdomain Management**: Create, delete, and configure settings for multiple domains from a single interface.
     *   **Per-Domain Configuration**: Override default settings for link timeouts, display values, and usage limits on a per-subdomain basis.
     *   **"Remember Me"**: Stay logged into the admin panel for an extended period.
-    *   **Link Management**: View click counts, edit all link properties (destination, expiration, usage limits, password), and perform bulk deletions.
-*   **Link Analytics**: A dedicated statistics page provides an overview of site-wide activity, including total links, total clicks, and recent activity over various timeframes.
+    *   **Link Management**: View click counts, edit all link properties (destination, expiration, usage limits, password), and perform bulk deletions of links.
+*   **Advanced Analytics**: A dedicated statistics page provides a comprehensive overview of site activity. All sections load on-demand for a fast user experience and feature:
+    *   Overall site-wide totals for active links and clicks.
+    *   Recent activity (links created, expired, clicks) over various timeframes.
+    *   A "Top 10" list of the most clicked links.
+    *   A breakdown of active links per creator, including individual API keys.
+    *   A per-domain statistics viewer.
+    *   A feature to safely reset all historical statistics.
 *   **Automatic Database Maintenance**: A background job periodically cleans up expired records, and an intelligent "just-in-time" cleanup mechanism reclaims keys from expired links during normal use.
 
 ### Security & Deployment
@@ -197,6 +203,8 @@ curl -X POST "https://shorter.example.com/api/v1/links" \
 ## Future Ideas
 *   **Two-Factor Authentication (2FA)**: Enhance admin panel security by requiring a second factor (e.g., TOTP) for login.
 *   **Abuse Reporting**: Add a form, protected by a captcha, for users to report links that violate the Terms of Service.
+*   **Data Visualization**: Add charts to the statistics page to visualize recent activity.
+*   **Pagination**: Implement pagination for data-heavy tables in the admin panel, such as the "Top Links" list.
 
 ## License
 

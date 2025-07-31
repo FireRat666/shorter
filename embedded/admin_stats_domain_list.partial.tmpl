@@ -1,0 +1,11 @@
+<div class="admin-form">
+    <label for="domain-select">Select a domain:</label>
+    <select id="domain-select" name="domain" class="inputbox">
+        <option value="">-- Please choose a domain --</option>
+        {{range .Domains}}
+        <option value="{{.}}">{{.}}</option>
+        {{end}}
+    </select>
+    <button id="view-domain-stats-btn" class="button">View Stats</button>
+</div>
+<div id="domain-stats-result" class="stats-result-container"></div>

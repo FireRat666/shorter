@@ -61,6 +61,12 @@ var defaultAdminStatsRecentActivityPartialHTML string
 //go:embed embedded/admin_stats_overall.partial.tmpl
 var defaultAdminStatsOverallPartialHTML string
 
+//go:embed embedded/admin_stats_domain_list.partial.tmpl
+var defaultAdminStatsDomainListPartialHTML string
+
+//go:embed embedded/admin_stats_domain_details.partial.tmpl
+var defaultAdminStatsDomainDetailsPartialHTML string
+
 // initTemplates initializes the template map, loading custom templates from disk
 // and falling back to embedded templates if custom ones are not found.
 func initTemplates() error {
@@ -90,6 +96,8 @@ func initTemplates() error {
 	loadTemplate("admin_stats_top_links.partial", defaultAdminStatsTopLinksPartialHTML, funcMap)
 	loadTemplate("admin_stats_overall.partial", defaultAdminStatsOverallPartialHTML, funcMap)
 	loadTemplate("admin_stats_recent_activity.partial", defaultAdminStatsRecentActivityPartialHTML, funcMap)
+	loadTemplate("admin_stats_domain_list.partial", defaultAdminStatsDomainListPartialHTML, funcMap)
+	loadTemplate("admin_stats_domain_details.partial", defaultAdminStatsDomainDetailsPartialHTML, funcMap)
 	loadTemplate("admin_stats_creator_stats.partial", defaultAdminStatsCreatorStatsPartialHTML, funcMap)
 
 	slogger.Info("Successfully loaded HTML templates", "count", len(templateMap))

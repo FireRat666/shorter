@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -34,6 +35,8 @@ func handleAdminRoutes(mux *http.ServeMux) {
 	adminRouter.HandleFunc("/stats/top-links", sessionAuth(adminStatsTopLinksHandler))
 	adminRouter.HandleFunc("/stats/recent-activity", sessionAuth(adminStatsRecentActivityHandler))
 	adminRouter.HandleFunc("/stats/creator-stats", sessionAuth(adminStatsCreatorStatsHandler))
+	adminRouter.HandleFunc("/stats/domain-list", sessionAuth(adminStatsDomainListHandler))
+	adminRouter.HandleFunc("/stats/domain-details", sessionAuth(adminStatsDomainDetailsHandler))
 	adminRouter.HandleFunc("/stats/reset", sessionAuth(handleAdminResetStats))
 
 	// Create a handler that first strips the "/admin" prefix, then passes to the adminRouter.
@@ -281,6 +284,67 @@ func adminStatsRecentActivityHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err := tmpl.Execute(w, data); err != nil {
 		slogger.Error("Unable to execute admin_stats_recent_activity.partial template", "error", err)
+		http.Error(w, "Failed to render template.", http.StatusInternalServerError)
+	}
+}
+
+// adminStatsDomainListHandler serves a partial containing a dropdown of all configured domains.
+func adminStatsDomainListHandler(w http.ResponseWriter, r *http.Request) {
+	var domains []string
+	for domain := range config.Subdomains {
+		domains = append(domains, domain)
+	}
+	sort.Strings(domains)
+
+	data := struct {
+		Domains []string
+	}{
+		Domains: domains,
+	}
+
+	tmpl, ok := templateMap["admin_stats_domain_list.partial"]
+	if !ok {
+		slogger.Error("Unable to load admin_stats_domain_list.partial template")
+		http.Error(w, "Template not found.", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tmpl.Execute(w, data); err != nil {
+		slogger.Error("Unable to execute admin_stats_domain_list.partial template", "error", err)
+		http.Error(w, "Failed to render template.", http.StatusInternalServerError)
+	}
+}
+
+// adminStatsDomainDetailsHandler serves a partial with statistics for a single, specified domain.
+func adminStatsDomainDetailsHandler(w http.ResponseWriter, r *http.Request) {
+	domain := r.URL.Query().Get("domain")
+	if domain == "" {
+		http.Error(w, "Domain parameter is required.", http.StatusBadRequest)
+		return
+	}
+	if _, ok := config.Subdomains[domain]; !ok {
+		http.Error(w, "Domain not configured.", http.StatusBadRequest)
+		return
+	}
+
+	stats, err := getStatsForDomain(r.Context(), domain)
+	if err != nil {
+		slogger.Error("Failed to get stats for domain", "domain", domain, "error", err)
+		http.Error(w, "Failed to load domain details.", http.StatusInternalServerError)
+		return
+	}
+
+	data := struct{ Stats *DomainStats }{Stats: stats}
+
+	tmpl, ok := templateMap["admin_stats_domain_details.partial"]
+	if !ok {
+		slogger.Error("Unable to load admin_stats_domain_details.partial template")
+		http.Error(w, "Template not found.", http.StatusInternalServerError)
+		return
+	}
+
+	if err := tmpl.Execute(w, data); err != nil {
+		slogger.Error("Unable to execute admin_stats_domain_details.partial template", "error", err)
 		http.Error(w, "Failed to render template.", http.StatusInternalServerError)
 	}
 }

@@ -41,6 +41,13 @@
         </div>
 
         <div class="tos">
+            <h2>Statistics by Domain</h2>
+            <div id="domain-stats-container">
+                <button id="load-domain-stats" class="button">Load Domain Statistics</button>
+            </div>
+        </div>
+
+        <div class="tos">
             <input id="reset-stats-toggle" class="toggle-checkbox" type="checkbox" />
             <label for="reset-stats-toggle" class="toggle-label">Reset Statistics</label>
             <div class="toggle-content">
@@ -100,6 +107,48 @@
                 'creator-stats-container',
                 '/admin/stats/creator-stats'
             );
+
+            // Custom logic for the two-step domain stats section
+            const loadDomainStatsBtn = document.getElementById('load-domain-stats');
+            const domainStatsContainer = document.getElementById('domain-stats-container');
+
+            loadDomainStatsBtn.addEventListener('click', () => {
+                loadDomainStatsBtn.disabled = true;
+                loadDomainStatsBtn.textContent = 'Loading...';
+
+                fetch('/admin/stats/domain-list')
+                    .then(response => {
+                        if (!response.ok) throw new Error('Failed to load domain list.');
+                        return response.text();
+                    })
+                    .then(html => {
+                        domainStatsContainer.innerHTML = html;
+                        // Now that the new content is in the DOM, add event listener for it.
+                        const viewBtn = domainStatsContainer.querySelector('#view-domain-stats-btn');
+                        const selector = domainStatsContainer.querySelector('#domain-select');
+                        const resultsDiv = domainStatsContainer.querySelector('#domain-stats-result');
+
+                        viewBtn.addEventListener('click', () => {
+                            const selectedDomain = selector.value;
+                            if (!selectedDomain) return;
+
+                            resultsDiv.innerHTML = '<p>Loading...</p>';
+
+                            fetch(`/admin/stats/domain-details?domain=${encodeURIComponent(selectedDomain)}`)
+                                .then(response => response.ok ? response.text() : Promise.reject('Failed to load domain details.'))
+                                .then(detailsHtml => { resultsDiv.innerHTML = detailsHtml; })
+                                .catch(error => {
+                                    console.error('Error loading domain details:', error);
+                                    resultsDiv.innerHTML = `<p class="error">Failed to load stats for ${selectedDomain}.</p>`;
+                                });
+                        });
+                    })
+                    .catch(error => {
+                        console.error('Error loading domain list:', error);
+                        domainStatsContainer.innerHTML = `<p class="error">Failed to load domain list. Please check the console.</p>`;
+                    }); // End of fetch chain
+            }); // End of loadDomainStatsBtn event listener
+
         });
     </script>
 </body>

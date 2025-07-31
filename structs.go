@@ -207,6 +207,13 @@ type CreatorStats struct {
 	LinkCount int
 }
 
+// DomainStats holds statistics for a single domain.
+type DomainStats struct {
+	Domain      string
+	ActiveLinks int
+	TotalClicks int
+}
+
 // adminEditPageVars holds the data for the subdomain edit page.
 type adminEditPageVars struct {
 	Domain         string
