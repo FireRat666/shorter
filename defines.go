@@ -4,7 +4,7 @@ const (
 	// charset consists of alphanumeric characters with some characters removed due to them being to similar in some fonts.
 	charset = "abcdefghijkmnopqrstuvwxyz23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 	// charset consists of characters that are valid for custom keys.
-	customKeyCharset = "abcdefghijklmnopqrstuvwxyzåäö0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ-_"
+	customKeyCharset = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-_"
 	// errServerError contains the generic error message users will se when somthing goes wrong
 	errServerError      = "Internal Server Error"
 	errInvalidKey       = "Invalid key"
