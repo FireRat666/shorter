@@ -45,7 +45,7 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
 *   **Deployment Ready**: Designed for modern deployment platforms like Render, with full support for configuration via environment variables.
 
 ### Extensibility
-*   **Public API**: A RESTful API for programmatic link creation and deletion, authenticated with secure bearer tokens.
+*   **Public API**: A RESTful API for programmatic link creation, deletion, and updating, authenticated with secure bearer tokens.
 *   **Customizable Theming**: Override the default HTML templates with your own to match your brand.
 
 ## Installation
@@ -87,186 +87,21 @@ For a service running at `shorter.example.com`, you can use `curl` or your brows
     # Visiting the same URL in a browser will show a confirmation page.
 ```
 
-## Deployment on Render
-This application is designed to be easily deployed as a Web Service on Render.
+## Deployment
 
-### 1. Fork the Repository
-First, fork this repository to your own GitHub account.
+This application is designed for easy deployment on modern cloud platforms like Render.
 
-### 2. Create a PostgreSQL Database
-1.  From your Render dashboard, create a new **PostgreSQL** database.
-2.  Give it a name (e.g., `shorter-db`).
-3.  Once the database is created, find the **Internal Database URL** under the "Connect" section. You will need this for the next step.
-
-### 3. Create a Web Service
-1.  From your Render dashboard, create a new **Web Service**.
-2.  Connect the GitHub repository you forked.
-3.  Render should automatically detect that this is a Go project. Use the following settings to ensure the output is named correctly:
-    *   **Build Command**: `go build -o app .`
-    *   **Start Command**: `./app`
-
-### 4. Configure Environment Variables
-In your Web Service's "Environment" tab, add the following environment variables. It's important to set these as secrets.
-
-*   `DATABASE_URL`:
-    *   **Value**: Paste the **Internal Database URL** you copied from your PostgreSQL instance in step 2.
-*   `LOG_SEP`:
-    *   **Value**: This should be a long, random, secret string. You can generate one locally using a command like `openssl rand -hex 16`.
-
-*   `SHORTER_DOMAINS`:
-    *   **Value**: A comma-separated list of the domains your service will run on. For a new Render service, this would be your `onrender.com` URL (e.g., `shorter-app.onrender.com`). If you add a custom domain later, you can add it here (e.g., `shorter-app.onrender.com,s.example.com`).
-
-*   `ADMIN_USER`:
-    *   **Value**: The username for the admin panel (e.g., `admin`).
-*   `ADMIN_PASS_HASH`:
-    *   **Value**: A **bcrypt hash** of your desired password. For security, you should never use a plaintext password.
-    *   **How to Generate a Hash**:
-        1.  Create a temporary file named `hash.go`.
-        2.  Paste the following Go code into it:
-            ```go
-            package main
-
-            import (
-                "fmt"
-                "log"
-                "os"
-                "golang.org/x/crypto/bcrypt"
-            )
-
-            func main() {
-                if len(os.Args) < 2 {
-                    log.Fatalln("Usage: go run hash.go <your-secret-password>")
-                }
-                password := os.Args[1]
-                hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-                if err != nil {
-                    log.Fatalln("Error generating hash:", err)
-                }
-                fmt.Println(string(hash))
-            }
-            ```
-        3.  Run the script from your terminal: `go run hash.go "my-super-secret-password"`
-        4.  Copy the output hash and use it as the value for this environment variable.
-
-*   `ADMIN_TOTP_ENABLED` & `ADMIN_TOTP_SECRET` (Optional):
-    *   **Value**: To enable 2FA, set `ADMIN_TOTP_ENABLED` to `true` and provide a secret for `ADMIN_TOTP_SECRET`.
-    *   **How to Generate a Secret**:
-        1.  Create a temporary file named `generatesecret.go`.
-        2.  Paste the following Go code into it:
-            ```go
-            package main
-
-            import (
-                "crypto/rand"
-                "encoding/base32"
-                "fmt"
-                "log"
-            )
-
-            func main() {
-                secret := make([]byte, 20)
-                if _, err := rand.Read(secret); err != nil {
-                    log.Fatalln("Error generating random secret:", err)
-                }
-                fmt.Println(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(secret))
-            }
-            ```
-        3.  Run the script from your terminal: `go run generatesecret.go`
-        4.  Copy the output secret (e.g., `JBSWY3DPEHPK3PXP...`) and use it as the value for this environment variable.
-
-Render will automatically set the `PORT` environment variable, which the application is configured to use.
-
-### 5. Deploy
-With the configuration and environment variables set, you can trigger your first deployment. The application will start, connect to the database, and be available at your Render URL.
+For detailed, step-by-step instructions, please see the **[Deployment Guide](DEPLOYMENT.md)**.
 
 ## Public API
 
-The service provides a simple RESTful API for programmatic link creation and deletion.
-
-### Authentication
-
-Authentication is handled via Bearer tokens. You can generate and manage your API keys from the "API Management" section of the admin panel.
-
-All API requests must include an `Authorization` header with your key:
-
-`Authorization: Bearer YOUR_API_KEY_HERE`
-
-### Endpoint: Create Link
-
-*   **URL**: `/api/v1/links`
-*   **Method**: `POST`
-*   **Headers**:
-    *   `Content-Type: application/json`
-    *   `Authorization: Bearer YOUR_API_KEY_HERE`
-*   **Body (JSON)**:
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `url` | string | Yes | The destination URL to shorten. |
-| `domain` | string | No | The domain to use for the short link. Defaults to the service's primary domain. |
-| `custom_key` | string | No | A specific key to use for the short link. If not provided, a random key will be generated. |
-| `expires_in` | string | No | A Go duration string (e.g., "1h", "30m", "72h"). Defaults to the shortest configured timeout. |
-| `max_uses` | int | No | The maximum number of times the link can be used. Defaults to unlimited (0). |
-| `password` | string | No | An optional password to protect the link. |
-
-#### Example Request (`curl`)
-
-```bash
-curl -X POST "https://shorter.example.com/api/v1/links" \
--H "Authorization: Bearer YOUR_API_KEY_HERE" \
--H "Content-Type: application/json" \
--d '{
-  "url": "https://www.google.com",
-  "domain": "shorter.example.com",
-  "expires_in": "5m",
-  "custom_key": "my-api-link"
-}'
-```
-
-#### Example Success Response (`201 Created`)
-
-```json
-{
-  "short_url": "https://shorter.example.com/my-api-link",
-  "expires_at": "2025-07-31T14:05:00Z"
-}
-```
-
-### Endpoint: Delete Link
-
-*   **URL**: `/api/v1/links`
-*   **Method**: `DELETE`
-*   **Headers**:
-    *   `Content-Type: application/json`
-    *   `Authorization: Bearer YOUR_API_KEY_HERE`
-*   **Body (JSON)**:
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `key` | string | Yes | The key of the link to delete. |
-| `domain` | string | No | The domain of the link to delete. Defaults to the service's primary domain. |
-
-#### Example Request (`curl`)
-
-```bash
-curl -X DELETE "https://shorter.example.com/api/v1/links" \
--H "Authorization: Bearer YOUR_API_KEY_HERE" \
--H "Content-Type: application/json" \
--d '{
-  "key": "my-api-link",
-  "domain": "shorter.example.com"
-}'
-```
-
-#### Example Success Response (`204 No Content`)
-
-The server will respond with an empty body and a `204 No Content` status code on success.
+For detailed information on using the RESTful API for programmatic link management, please see the **[API Documentation](API.md)**.
 
 ## Future Ideas
 *   **Data Visualization**: Continue to expand the data visualization capabilities on the statistics page with more charts and interactive elements.
 *   **User Accounts**: Allow non-admin users to register for accounts to manage their own links and API keys, turning the service into a multi-tenant platform.
 *   **Link Descriptions**: Add a description field to links to make them easier to identify and manage in the admin panel.
-*   **API Expansion**: Continue to expand the API to allow reading and updating links for more powerful programmatic administration.
+*   **API Expansion**: Continue to expand the API to allow reading link details for more powerful programmatic administration.
 *   **Health Check Endpoint**: Create a dedicated `/health` endpoint for automated monitoring by deployment platforms.
 *   **Admin Audit Log**: Track all administrative actions (e.g., who deleted a link, changed a setting, or generated an API key) for security and accountability.
 

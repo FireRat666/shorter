@@ -402,6 +402,8 @@ func handleAPILinks(w http.ResponseWriter, r *http.Request) {
 		handleAPICreateLink(w, r)
 	case http.MethodDelete:
 		handleAPIDeleteLink(w, r)
+	case http.MethodPatch:
+		handleAPIUpdateLink(w, r)
 	default:
 		respondWithError(w, http.StatusMethodNotAllowed, fmt.Sprintf("Method %s is not allowed for this endpoint", r.Method))
 	}
@@ -644,6 +646,96 @@ func handleAPIDeleteLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleAPIUpdateLink handles requests to update a link via the API.
+func handleAPIUpdateLink(w http.ResponseWriter, r *http.Request) {
+	var req apiUpdateLinkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid JSON request body")
+		return
+	}
+
+	if req.Key == "" {
+		respondWithError(w, http.StatusBadRequest, "The 'key' field is required")
+		return
+	}
+
+	domain := req.Domain
+	if domain == "" {
+		domain = config.PrimaryDomain
+	}
+
+	// Get the API key token from the context to verify ownership.
+	apiKeyToken, ok := r.Context().Value(userContextKey).(string)
+	if !ok {
+		respondWithError(w, http.StatusInternalServerError, "Could not identify API key from request context.")
+		return
+	}
+
+	// Get the full details of the link to be updated.
+	link, err := getLinkDetails(r.Context(), req.Key, domain)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve link for update.")
+		return
+	}
+	if link == nil {
+		respondWithError(w, http.StatusNotFound, "Link not found.")
+		return
+	}
+
+	// Ownership check: The API key in the request must match the creator of the link.
+	if !link.CreatedBy.Valid || link.CreatedBy.String != apiKeyToken {
+		respondWithError(w, http.StatusForbidden, "This API key does not have permission to update this link.")
+		return
+	}
+
+	// Apply updates from the request.
+	if req.ExpiresIn != "" {
+		duration, err := time.ParseDuration(req.ExpiresIn)
+		if err != nil {
+			respondWithError(w, http.StatusBadRequest, "Invalid 'expires_in' format. Use Go duration format (e.g., '1h', '30m').")
+			return
+		}
+		link.ExpiresAt = time.Now().Add(duration)
+	}
+
+	if req.MaxUses != nil { // Check if the field was provided
+		if *req.MaxUses < 0 {
+			respondWithError(w, http.StatusBadRequest, "Invalid 'max_uses' value, must be non-negative.")
+			return
+		}
+		link.TimesAllowed = *req.MaxUses
+	}
+
+	if req.Password != "" {
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to hash password.")
+			return
+		}
+		link.PasswordHash.String = string(hashedPassword)
+		link.PasswordHash.Valid = true
+	}
+
+	// Persist the changes to the database using the existing update function.
+	if err := updateLink(r.Context(), *link); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to update link.")
+		return
+	}
+
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+
+	// Respond with the updated link details.
+	response := apiCreateLinkResponse{
+		ShortURL:  fmt.Sprintf("%s://%s/%s", scheme, link.Domain, link.Key),
+		ExpiresAt: link.ExpiresAt,
+	}
+
+	respondWithJSON(w, http.StatusOK, response)
 }
 
 func handleCSPReport(w http.ResponseWriter, r *http.Request) {

@@ -371,6 +371,16 @@ type apiCreateLinkResponse struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+// apiUpdateLinkRequest defines the structure for a JSON request to update a link via the API.
+// Key and Domain identify the link. Other fields are optional updates.
+type apiUpdateLinkRequest struct {
+	Key       string `json:"key"`
+	Domain    string `json:"domain,omitempty"`
+	ExpiresIn string `json:"expires_in,omitempty"` // e.g., "24h", "7d"
+	MaxUses   *int   `json:"max_uses,omitempty"`   // Pointer to distinguish 0 from not-set
+	Password  string `json:"password,omitempty"`   // Set a new password.
+}
+
 // apiDeleteLinkRequest defines the structure for a JSON request to delete a link via the API.
 type apiDeleteLinkRequest struct {
 	Key    string `json:"key"`
