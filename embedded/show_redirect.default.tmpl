@@ -22,8 +22,8 @@
             <p class="link-info">This link will expire on {{.Timeout}}.
             {{if gt .TimesAllowed 0}}<br>It can be used {{.RemainingUses}} time(s).{{end}}</p>
         </div>
-        {{if $.AbuseReporting.Enabled}}<div class="footer-link"><a href="/report?key={{.Key}}">Report Abuse</a></div>{{end}}
         <div class="tos">To create your own temporary links, please visit <a href="{{.Domain}}">{{.Domain}}</a></div>
+        {{if $.AbuseReporting.Enabled}}<div class="footer-link"><a href="/report?key={{.Key}}">Report Abuse</a></div>{{end}}
     </div>
 </body>
 </html>
