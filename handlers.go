@@ -976,6 +976,13 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 		key = key[:extradataindex]
 	}
 
+	// Add a specific check for common probing patterns, like requests for hidden files.
+	// This handles requests for paths like "/.env", "/.git/config", etc.
+	if strings.HasPrefix(key, ".") {
+		logErrors(w, r, "Not Found", http.StatusNotFound, "Blocked common probe for hidden file: "+key)
+		return
+	}
+
 	// Get the specific configuration for the requested host.
 	subdomainCfg := getSubdomainConfig(r.Host)
 
