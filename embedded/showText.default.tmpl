@@ -15,6 +15,7 @@
             <br>
             <button id="copy-button" class="copy-button">Copy to Clipboard</button>
         </div>
+        {{if $.AbuseReporting.Enabled}}<div class="footer-link"><a href="/report?key={{.Key}}">Report Abuse</a></div>{{end}}
         <div class="info">To create your own temporary links or text dumps, please visit <a href="{{.Domain}}">{{.Domain}}</a></div>
     </div>
     <script src="/js/showText.js" integrity="{{.ShowTextJsSRIHash}}" defer></script>

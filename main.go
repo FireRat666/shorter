@@ -257,4 +257,11 @@ func runCleanup() {
 	} else if logsDeleted > 0 {
 		slogger.Info("Periodic cleanup deleted old expiration logs", "count", logsDeleted)
 	}
+
+	// Clean up orphaned abuse reports.
+	if reportsCleaned, err := cleanupOrphanedAbuseReports(context.Background()); err != nil {
+		slogger.Error("Error during orphaned abuse report cleanup", "error", err)
+	} else if reportsCleaned > 0 {
+		slogger.Info("Periodic cleanup deleted orphaned abuse reports", "count", reportsCleaned)
+	}
 }

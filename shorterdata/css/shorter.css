@@ -295,6 +295,10 @@ input[type=submit].admin-submit-button {
     background-color: #097100;
 }
 
+input[type=submit].edit-button {
+    padding: 0.2em 0.2em;
+}
+
 .edit-button {
     background-color: #097100;
     color: white;
@@ -304,6 +308,8 @@ input[type=submit].admin-submit-button {
     cursor: pointer;
     text-decoration: none;
     display: inline-block;
+    font-size: 0.9em;
+    line-height: 1.2; /* Ensure consistent height for input and a tags */
 }
 
 /* Style for admin form inputs that have a specific override value */
@@ -461,6 +467,28 @@ select.is-overridden {
     width: auto;
     padding: 0.75em 1.5em; /* Match input box height */
     text-decoration: none;
+}
+
+.chart-container {
+    position: relative;
+    height: 40vh;
+    width: 80vw;
+    margin-bottom: 2em;
+}
+
+.report-comments {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+.status-update-form select {
+    margin-bottom: 0.5em;
+}
+.manage-link-button {
+    margin-top: 0.5em;
+}
+
+.delete-report-form {
+    margin-top: 0.5em;
 }
 
 .chart-container {

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,6 +27,7 @@ import (
 
 func handleRoot(mux *http.ServeMux) {
 	mux.HandleFunc("/login/2fa", handle2FALoginPage)
+	mux.HandleFunc("/report", handleReportPage)
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		// This is the main entry point for all non-specific requests.
 		// We first add security headers and validate the request host.
@@ -1082,10 +1084,12 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("Content-Type", "text/html; charset=utf-8")
 		tmplArgs := showRedirectPageVars{
 			Domain:         scheme + "://" + r.Host,
+			Key:            key,
 			DestinationURL: string(lnk.Data),
 			Timeout:        lnk.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
 			TimesAllowed:   lnk.TimesAllowed,
 			RemainingUses:  lnk.TimesAllowed - lnk.TimesUsed,
+			AbuseReporting: config.AbuseReporting,
 			CssSRIHash:     cssSRIHash,
 		}
 		if err := t.Execute(w, tmplArgs); err != nil {
@@ -1123,10 +1127,12 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 
 		tmplArgs := showTextVars{
 			Domain:            scheme + "://" + r.Host,
+			Key:               key,
 			Data:              textContent,
 			Timeout:           lnk.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
 			TimesAllowed:      lnk.TimesAllowed,
 			RemainingUses:     lnk.TimesAllowed - lnk.TimesUsed,
+			AbuseReporting:    config.AbuseReporting,
 			CssSRIHash:        cssSRIHash,
 			ShowTextJsSRIHash: showTextJsSRIHash,
 		}
@@ -1193,14 +1199,16 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Add("Content-Type", "text/html; charset=utf-8")
 		tmplArgs := showFilePageVars{
-			Domain:        scheme + "://" + r.Host,
-			FileName:      string(lnk.Data),
-			FileSize:      formatFileSize(fileInfo.Size()),
-			DownloadURL:   "/" + key + "?download=true",
-			Timeout:       lnk.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
-			TimesAllowed:  lnk.TimesAllowed,
-			RemainingUses: lnk.TimesAllowed - lnk.TimesUsed, // Usage has not been incremented yet.
-			CssSRIHash:    cssSRIHash,
+			Domain:         scheme + "://" + r.Host,
+			Key:            key,
+			FileName:       string(lnk.Data),
+			FileSize:       formatFileSize(fileInfo.Size()),
+			DownloadURL:    "/" + key + "?download=true",
+			Timeout:        lnk.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
+			TimesAllowed:   lnk.TimesAllowed,
+			RemainingUses:  lnk.TimesAllowed - lnk.TimesUsed, // Usage has not been incremented yet.
+			AbuseReporting: config.AbuseReporting,
+			CssSRIHash:     cssSRIHash,
 		}
 
 		if err := t.Execute(w, tmplArgs); err != nil {
@@ -1370,6 +1378,132 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 		}
 	}
 	logOK(r, http.StatusCreated)
+}
+
+// handleReportPage handles displaying the abuse report form and processing submissions.
+func handleReportPage(w http.ResponseWriter, r *http.Request) {
+	if !config.AbuseReporting.Enabled {
+		http.NotFound(w, r)
+		return
+	}
+
+	key := r.URL.Query().Get("key")
+	if key == "" {
+		logErrors(w, r, "No link specified for reporting.", http.StatusBadRequest, "Report page accessed without key")
+		return
+	}
+
+	// We don't need the full link details, just to confirm it exists.
+	link, err := getLinkFromDB(r.Context(), key, r.Host)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Error checking link for report: "+err.Error())
+		return
+	}
+	if link == nil {
+		logErrors(w, r, "The specified link does not exist or has expired.", http.StatusNotFound, "Report submitted for non-existent link: "+key)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		// Process the form submission.
+		if err := r.ParseForm(); err != nil {
+			logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Report form parse error: "+err.Error())
+			return
+		}
+
+		// Verify the hCaptcha response.
+		hCaptchaResponse := r.FormValue("h-captcha-response")
+		if !verifyHCaptcha(hCaptchaResponse, r.RemoteAddr) {
+			renderReportPage(w, r, key, "CAPTCHA verification failed. Please try again.")
+			return
+		}
+
+		// Save the verified report to the database.
+		err := saveAbuseReport(r.Context(), key, r.Host, r.FormValue("email"), r.FormValue("comments"))
+		if err != nil {
+			// This is a server-side error.
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to save abuse report: "+err.Error())
+			return
+		}
+		slogger.Info("Abuse report successfully saved to database", "key", key, "domain", r.Host)
+
+		// Show a success page.
+		successTmpl, ok := templateMap["report_success"]
+		if !ok {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load report_success template")
+			return
+		}
+		pageVars := struct{ CssSRIHash string }{CssSRIHash: cssSRIHash}
+		if err := successTmpl.Execute(w, pageVars); err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute report_success template: "+err.Error())
+		}
+		return
+	}
+
+	// Handle GET request to display the form.
+	renderReportPage(w, r, key, "")
+}
+
+// renderReportPage is a helper to render the abuse report form.
+func renderReportPage(w http.ResponseWriter, r *http.Request, key, errorMsg string) {
+	reportTmpl, ok := templateMap["report"]
+	if !ok {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load report template")
+		return
+	}
+
+	pageVars := struct {
+		ReportedURL     string
+		Key             string
+		Error           string
+		HCaptchaSiteKey string
+		CssSRIHash      string
+	}{
+		ReportedURL:     r.Host + "/" + key,
+		Key:             key,
+		Error:           errorMsg,
+		HCaptchaSiteKey: config.AbuseReporting.HCaptcha.SiteKey,
+		CssSRIHash:      cssSRIHash,
+	}
+
+	if err := reportTmpl.Execute(w, pageVars); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute report template: "+err.Error())
+	}
+}
+
+// verifyHCaptcha sends a request to the hCaptcha API to verify a user's response.
+func verifyHCaptcha(response, remoteIP string) bool {
+	if config.AbuseReporting.HCaptcha.SecretKey == "" {
+		slogger.Error("hCaptcha secret key is not configured. CAPTCHA verification is disabled.")
+		return true
+	}
+
+	// The remoteIP from the request includes the port. We need to split it.
+	ip, _, err := net.SplitHostPort(remoteIP)
+	if err != nil {
+		// If we can't split it, it might be just an IP. Use it as is.
+		ip = remoteIP
+	}
+
+	data := url.Values{}
+	data.Set("secret", config.AbuseReporting.HCaptcha.SecretKey)
+	data.Set("response", response)
+	data.Set("remoteip", ip)
+
+	resp, err := http.PostForm("https://api.hcaptcha.com/siteverify", data)
+	if err != nil {
+		slogger.Error("Failed to send hCaptcha verification request", "error", err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	var result hCaptchaVerifyResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		slogger.Error("Failed to decode hCaptcha response", "error", err)
+		return false
+	}
+
+	return result.Success
 }
 
 // handleQRCodePage generates and serves a QR code for a given URL.

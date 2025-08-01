@@ -25,6 +25,7 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
     *   **Two-Factor Authentication (2FA)**: Secure the admin account with Time-based One-Time Passwords (TOTP) from an authenticator app.
     *   **Link Management**: A paginated and searchable interface to view, edit, and perform bulk deletions of links for each domain.
     *   **API Key Management**: A paginated and searchable interface to create, manage, and delete API keys with descriptions.
+    *   **Abuse Report Management**: A paginated and searchable interface to review, manage, and delete user-submitted abuse reports.
 *   **Advanced Analytics**: A dedicated statistics page provides a comprehensive overview of site activity. All sections load on-demand for a fast user experience and feature:
     *   Overall site-wide totals for active links and clicks.
     *   Recent activity (links created, expired, clicks) over various timeframes.
@@ -37,6 +38,7 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
 ### Security & Deployment
 *   **Secure by Default**: Implements a strict Content Security Policy (CSP), CSRF protection on all forms, and other security headers to protect users.
 *   **Malware Protection**: Integrated with DNS-based blocklists (DNSBL) to prevent shortening of malicious URLs.
+*   **Abuse Reporting**: A public-facing form, protected by hCaptcha, allows users to report malicious links.
 *   **Persistent Storage**: Uses a PostgreSQL backend to store all links, sessions, and configurations.
 *   **API Rate Limiting**: Differentiated rate limits for anonymous users and authenticated API clients to prevent abuse and ensure service stability.
 *   **Resource Management**: Configurable size limits for URL and text submissions to prevent abuse and manage database size.
@@ -231,7 +233,6 @@ curl -X POST "https://shorter.example.com/api/v1/links" \
 ```
 
 ## Future Ideas
-*   **Abuse Reporting**: Add a form, protected by a captcha, for users to report links that violate the Terms of Service.
 *   **Data Visualization**: Continue to expand the data visualization capabilities on the statistics page with more charts and interactive elements.
 *   **User Accounts**: Allow non-admin users to register for accounts to manage their own links and API keys, turning the service into a multi-tenant platform.
 *   **Link Descriptions**: Add a description field to links to make them easier to identify and manage in the admin panel.

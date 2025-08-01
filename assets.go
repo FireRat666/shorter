@@ -22,6 +22,12 @@ var defaultFileCreatedHTML string
 //go:embed embedded/show_file.default.tmpl
 var defaultShowFileHTML string
 
+//go:embed embedded/report.default.tmpl
+var defaultReportHTML string
+
+//go:embed embedded/report_success.default.tmpl
+var defaultReportSuccessHTML string
+
 //go:embed embedded/show_redirect.default.tmpl
 var defaultShowRedirectHTML string
 
@@ -60,6 +66,9 @@ var defaultPasswordPromptHTML string
 
 //go:embed embedded/admin_stats_top_links.partial.tmpl
 var defaultAdminStatsTopLinksPartialHTML string
+
+//go:embed embedded/admin_abuse_reports.default.tmpl
+var defaultAdminAbuseReportsHTML string
 
 //go:embed embedded/admin_security.default.tmpl
 var defaultAdminSecurityHTML string
@@ -101,6 +110,8 @@ func initTemplates() error {
 	loadTemplate("text_dump_created", defaultTextDumpCreatedHTML, funcMap)
 	loadTemplate("link_created", defaultLinkCreatedHTML, funcMap)
 	loadTemplate("file_created", defaultFileCreatedHTML, funcMap)
+	loadTemplate("report", defaultReportHTML, funcMap)
+	loadTemplate("report_success", defaultReportSuccessHTML, funcMap)
 	loadTemplate("show_file", defaultShowFileHTML, funcMap)
 	loadTemplate("show_redirect", defaultShowRedirectHTML, funcMap)
 	loadTemplate("showText", defaultShowTextHTML, funcMap)
@@ -111,6 +122,7 @@ func initTemplates() error {
 	loadTemplate("error", defaultErrorHTML, funcMap)
 	loadTemplate("login", defaultLoginHTML, funcMap)
 	loadTemplate("login_2fa", defaultLogin2FAHTML, funcMap)
+	loadTemplate("admin_abuse_reports", defaultAdminAbuseReportsHTML, funcMap)
 	loadTemplate("admin_security", defaultAdminSecurityHTML, funcMap)
 	loadTemplate("admin_api_keys", defaultAdminAPIKeysHTML, funcMap)
 	loadTemplate("password_prompt", defaultPasswordPromptHTML, funcMap)

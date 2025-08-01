@@ -141,6 +141,22 @@ func setupDB(databaseURL string) error {
 		return fmt.Errorf("failed to create expirations schema: %w", err)
 	}
 
+	// Create the abuse_reports table.
+	schemaAbuseReports := `
+	CREATE TABLE IF NOT EXISTS abuse_reports (
+		id BIGSERIAL PRIMARY KEY,
+		link_key TEXT NOT NULL,
+		link_domain TEXT NOT NULL,
+		reporter_email TEXT,
+		comments TEXT,
+		status TEXT NOT NULL DEFAULT 'new', -- 'new', 'reviewed', 'resolved'
+		reported_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+	CREATE INDEX IF NOT EXISTS idx_abuse_reports_status ON abuse_reports (status);`
+	if _, err = db.ExecContext(ctx, schemaAbuseReports); err != nil {
+		return fmt.Errorf("failed to create abuse_reports schema: %w", err)
+	}
+
 	// --- Schema Migrations ---
 	// This section handles simple, additive schema changes to avoid breaking existing deployments.
 	if err := runSchemaMigration(ctx, "links", "password_hash", "TEXT"); err != nil {
@@ -921,7 +937,7 @@ func resetAllStatistics(ctx context.Context) error {
 	}
 
 	// 3. Truncate the historical clicks and expirations tables.
-	if _, err := tx.ExecContext(ctx, `TRUNCATE TABLE clicks, expirations;`); err != nil {
+	if _, err := tx.ExecContext(ctx, `TRUNCATE TABLE clicks, expirations, abuse_reports;`); err != nil {
 		return fmt.Errorf("failed to truncate analytics tables during reset: %w", err)
 	}
 
@@ -1180,4 +1196,111 @@ func getAPIKeyByToken(ctx context.Context, token string) (*APIKey, error) {
 		return nil, fmt.Errorf("failed to get API key from database: %w", err)
 	}
 	return apiKey, nil
+}
+
+// saveAbuseReport inserts a new abuse report into the database.
+func saveAbuseReport(ctx context.Context, key, domain, email, comments string) error {
+	query := `
+		INSERT INTO abuse_reports (link_key, link_domain, reporter_email, comments)
+		VALUES ($1, $2, $3, $4);`
+	_, err := db.ExecContext(ctx, query, key, domain, email, comments)
+	if err != nil {
+		return fmt.Errorf("failed to insert abuse report: %w", err)
+	}
+	return nil
+}
+
+// getAbuseReportCount returns the total number of abuse reports, with optional filters.
+func getAbuseReportCount(ctx context.Context, statusFilter, searchQuery string) (int, error) {
+	var count int
+	var args []interface{}
+	query := `SELECT COUNT(*) FROM abuse_reports`
+	conditions := []string{}
+
+	if statusFilter != "" {
+		conditions = append(conditions, fmt.Sprintf("status = $%d", len(args)+1))
+		args = append(args, statusFilter)
+	}
+	if searchQuery != "" {
+		conditions = append(conditions, fmt.Sprintf("link_key ILIKE $%d", len(args)+1))
+		args = append(args, "%"+searchQuery+"%")
+	}
+
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	err := db.QueryRowContext(ctx, query, args...).Scan(&count)
+	return count, err
+}
+
+// getAbuseReports retrieves a paginated list of abuse reports.
+func getAbuseReports(ctx context.Context, statusFilter, searchQuery string, limit, offset int) ([]AbuseReport, error) {
+	var reports []AbuseReport
+	var args []interface{}
+	query := `SELECT id, link_key, link_domain, reporter_email, comments, status, reported_at FROM abuse_reports`
+	conditions := []string{}
+
+	if statusFilter != "" {
+		conditions = append(conditions, fmt.Sprintf("status = $%d", len(args)+1))
+		args = append(args, statusFilter)
+	}
+	if searchQuery != "" {
+		conditions = append(conditions, fmt.Sprintf("link_key ILIKE $%d", len(args)+1))
+		args = append(args, "%"+searchQuery+"%")
+	}
+
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	query += fmt.Sprintf(" ORDER BY reported_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var r AbuseReport
+		if err := rows.Scan(&r.ID, &r.LinkKey, &r.LinkDomain, &r.ReporterEmail, &r.Comments, &r.Status, &r.ReportedAt); err != nil {
+			return nil, err
+		}
+		reports = append(reports, r)
+	}
+	return reports, rows.Err()
+}
+
+// updateAbuseReportStatus updates the status of a specific abuse report.
+func updateAbuseReportStatus(ctx context.Context, reportID int64, newStatus string) error {
+	query := `UPDATE abuse_reports SET status = $1 WHERE id = $2;`
+	_, err := db.ExecContext(ctx, query, newStatus, reportID)
+	return err
+}
+
+// deleteAbuseReport removes a single abuse report by its ID.
+func deleteAbuseReport(ctx context.Context, reportID int64) error {
+	query := `DELETE FROM abuse_reports WHERE id = $1;`
+	_, err := db.ExecContext(ctx, query, reportID)
+	if err != nil {
+		return fmt.Errorf("failed to delete abuse report with ID %d: %w", reportID, err)
+	}
+	return nil
+}
+
+// cleanupOrphanedAbuseReports removes reports for links that no longer exist.
+func cleanupOrphanedAbuseReports(ctx context.Context) (int64, error) {
+	// This query deletes any report where the combination of its link_key and link_domain
+	// does not exist in the main links table.
+	query := `
+		DELETE FROM abuse_reports
+		WHERE (link_key, link_domain) NOT IN (SELECT key, domain FROM links);`
+
+	result, err := db.ExecContext(ctx, query)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

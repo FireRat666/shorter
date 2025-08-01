@@ -97,6 +97,16 @@ MalwareProtection:
   CustomDNSServers: ["1.1.1.1:53", "8.8.8.8:53"]
 
 # -----------------------------------------------------------------------------
+# Abuse Reporting
+# -----------------------------------------------------------------------------
+# Get keys from https://www.hcaptcha.com/
+AbuseReporting:
+  Enabled: true
+  hCaptcha:
+    SiteKey: "" # Your hCaptcha site key (public)
+    SecretKey: "" # Your hCaptcha secret key (private, set via env var)
+
+# -----------------------------------------------------------------------------
 # Rate Limiting
 # -----------------------------------------------------------------------------
 # Settings for anonymous users creating links via the web form.

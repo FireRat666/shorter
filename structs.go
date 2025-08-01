@@ -30,6 +30,7 @@ type Config struct {
 	SessionTimeoutRememberMe string                     `yaml:"SessionTimeoutRememberMe"`
 	CleanupInterval          string                     `yaml:"CleanupInterval"`
 	CSP                      string                     `yaml:"CSP"`
+	AbuseReporting           AbuseReportingConfig       `yaml:"AbuseReporting"`
 	AnonymousRateLimit       AnonymousRateLimitConfig   `yaml:"AnonymousRateLimit"`
 	APIRateLimit             APIRateLimitConfig         `yaml:"APIRateLimit"`
 	Admin                    AdminConfig                `yaml:"Admin"`
@@ -51,6 +52,26 @@ type MalwareProtectionConfig struct {
 	Enabled          bool     `yaml:"Enabled"`
 	DNSBLServers     []string `yaml:"DNSBLServers"`
 	CustomDNSServers []string `yaml:"CustomDNSServers"`
+}
+
+// AbuseReportingConfig holds settings for the abuse reporting feature.
+type AbuseReportingConfig struct {
+	Enabled  bool           `yaml:"Enabled"`
+	HCaptcha HCaptchaConfig `yaml:"hCaptcha"`
+}
+
+// HCaptchaConfig holds the site key and secret key for the hCaptcha service.
+type HCaptchaConfig struct {
+	SiteKey   string `yaml:"SiteKey"`
+	SecretKey string `yaml:"SecretKey"`
+}
+
+// hCaptchaVerifyResponse is the expected JSON response from the hCaptcha API.
+type hCaptchaVerifyResponse struct {
+	Success     bool     `json:"success"`
+	ChallengeTS string   `json:"challenge_ts"` // ISO8601 timestamp
+	Hostname    string   `json:"hostname"`
+	ErrorCodes  []string `json:"error-codes"`
 }
 
 // AnonymousRateLimitConfig holds settings for anonymous user rate limiting.
@@ -122,51 +143,70 @@ type linkCreatedPageVars struct {
 }
 
 type textDumpCreatedPageVars struct {
-	Domain        string
-	ShortURL      string
-	Timeout       string
-	TimesAllowed  int
-	RemainingUses int
-	CssSRIHash    string
+	Domain         string
+	ShortURL       string
+	Timeout        string
+	TimesAllowed   int
+	RemainingUses  int
+	AbuseReporting AbuseReportingConfig
+	CssSRIHash     string
 }
 
 type fileCreatedPageVars struct {
-	Domain        string
-	ShortURL      string
-	Timeout       string
-	TimesAllowed  int
-	RemainingUses int
-	CssSRIHash    string
+	Domain         string
+	ShortURL       string
+	Timeout        string
+	TimesAllowed   int
+	RemainingUses  int
+	AbuseReporting AbuseReportingConfig
+	CssSRIHash     string
 }
 
 type showFilePageVars struct {
-	Domain        string
-	FileName      string
-	FileSize      string // Formatted string like "123 KB"
-	DownloadURL   string
-	Timeout       string
-	TimesAllowed  int
-	RemainingUses int
-	CssSRIHash    string
+	Domain         string
+	Key            string
+	FileName       string
+	FileSize       string // Formatted string like "123 KB"
+	DownloadURL    string
+	Timeout        string
+	TimesAllowed   int
+	RemainingUses  int
+	AbuseReporting AbuseReportingConfig
+	CssSRIHash     string
 }
 
 type showRedirectPageVars struct {
 	Domain         string
+	Key            string
 	DestinationURL string
 	Timeout        string
 	TimesAllowed   int
 	RemainingUses  int
+	AbuseReporting AbuseReportingConfig
 	CssSRIHash     string
 }
 
 type showTextVars struct {
 	Domain            string
+	Key               string
 	Data              string
 	Timeout           string
 	TimesAllowed      int
 	RemainingUses     int
+	AbuseReporting    AbuseReportingConfig
 	ShowTextJsSRIHash string
 	CssSRIHash        string
+}
+
+// AbuseReport represents a single abuse report record from the database.
+type AbuseReport struct {
+	ID            int64
+	LinkKey       string
+	LinkDomain    string
+	ReporterEmail string
+	Comments      string
+	Status        string
+	ReportedAt    time.Time
 }
 
 // IndexPageVars holds the data needed to render the index page template.
@@ -285,6 +325,20 @@ type adminEditLinkPageVars struct {
 	DataString string // The link's data, decompressed if necessary.
 	CSRFToken  string
 	CssSRIHash string
+}
+
+// adminAbuseReportsPageVars holds data for the abuse reports management page.
+type adminAbuseReportsPageVars struct {
+	Reports     []AbuseReport
+	CurrentPage int
+	TotalPages  int
+	HasPrev     bool
+	HasNext     bool
+	SearchQuery string
+	Filter      string
+	CssSRIHash  string
+	Nonce       string
+	CSRFToken   string
 }
 
 // adminAPIKeysPageVars holds data for the API key management page.

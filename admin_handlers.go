@@ -33,6 +33,7 @@ func handleAdminRoutes(mux *http.ServeMux) {
 	adminRouter.HandleFunc("/edit_static_link", sessionAuth(handleAdminEditStaticLinkPage))
 	adminRouter.HandleFunc("/api-keys", sessionAuth(handleAdminAPIKeysPage))
 	adminRouter.HandleFunc("/edit-link", sessionAuth(handleAdminEditLinkPage))
+	adminRouter.HandleFunc("/abuse-reports", sessionAuth(handleAdminAbuseReportsPage))
 	adminRouter.HandleFunc("/security", sessionAuth(handleAdminSecurityPage))
 	adminRouter.HandleFunc("/stats", sessionAuth(handleAdminStatsPage))
 	adminRouter.HandleFunc("/logout", sessionAuth(handleAdminLogout)) // Logout must be protected
@@ -167,6 +168,99 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin template: "+err.Error())
 	}
 	logOK(r, http.StatusOK)
+}
+
+// handleAdminAbuseReportsPage serves the page for viewing and managing abuse reports.
+func handleAdminAbuseReportsPage(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := r.ParseForm(); err != nil {
+				logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Abuse report update form parse error: "+err.Error())
+				return
+			}
+			action := r.FormValue("action")
+			switch action {
+			case "update_status":
+				reportID, err := strconv.ParseInt(r.FormValue("report_id"), 10, 64)
+				if err != nil {
+					logErrors(w, r, "Invalid report ID.", http.StatusBadRequest, "Invalid report_id for status update")
+					return
+				}
+				newStatus := r.FormValue("new_status")
+				if newStatus != "new" && newStatus != "reviewed" && newStatus != "resolved" {
+					logErrors(w, r, "Invalid status value.", http.StatusBadRequest, "Invalid new_status for report")
+					return
+				}
+				if err := updateAbuseReportStatus(r.Context(), reportID, newStatus); err != nil {
+					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to update abuse report status: "+err.Error())
+					return
+				}
+			case "delete_report":
+				reportID, err := strconv.ParseInt(r.FormValue("report_id"), 10, 64)
+				if err != nil {
+					logErrors(w, r, "Invalid report ID.", http.StatusBadRequest, "Invalid report_id for deletion")
+					return
+				}
+				if err := deleteAbuseReport(r.Context(), reportID); err != nil {
+					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete abuse report: "+err.Error())
+					return
+				}
+			}
+			// Redirect back to the same page to show the update.
+			http.Redirect(w, r, r.Header.Get("Referer"), http.StatusSeeOther)
+		})
+		csrfProtect(handler)(w, r)
+		return
+	}
+
+	// Handle GET request
+	searchQuery := r.URL.Query().Get("q")
+	filter := r.URL.Query().Get("filter")
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	const limit = 20
+	offset := (page - 1) * limit
+
+	totalReports, err := getAbuseReportCount(r.Context(), filter, searchQuery)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve abuse report count: "+err.Error())
+		return
+	}
+
+	reports, err := getAbuseReports(r.Context(), filter, searchQuery, limit, offset)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve abuse reports: "+err.Error())
+		return
+	}
+
+	totalPages := int(math.Ceil(float64(totalReports) / float64(limit)))
+
+	tmpl, ok := templateMap["admin_abuse_reports"]
+	if !ok {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_abuse_reports template")
+		return
+	}
+
+	pageVars := adminAbuseReportsPageVars{
+		Reports:     reports,
+		CurrentPage: page,
+		TotalPages:  totalPages,
+		HasPrev:     page > 1,
+		HasNext:     page < totalPages,
+		SearchQuery: searchQuery,
+		Filter:      filter,
+		CssSRIHash:  cssSRIHash,
+		CSRFToken:   getOrSetCSRFToken(w, r),
+	}
+
+	nonce, _ := r.Context().Value(web.NonceContextKey).(string)
+	pageVars.Nonce = nonce
+
+	if err := tmpl.Execute(w, pageVars); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_abuse_reports template: "+err.Error())
+	}
 }
 
 // handleAdminSecurityPage serves the 2FA setup and status page.
