@@ -73,17 +73,32 @@ The application will automatically find the `shorterdata` directory and start th
 
 ### Quick Add Feature
 
-You can quickly create a short, random-key link by making a GET request to the root of the service with the URL to shorten as the query string. This will create a link with the shortest default timeout.
-
-When using a command-line tool like `curl`, `wget`, or PowerShell's `Invoke-WebRequest`, the service will attempt to detect it and respond with the short URL as plain text, suitable for scripting.
+You can quickly create a short, random-key link by making a GET request to the root of the service. This will create a link with a default timeout and key length.
 
 For a service running at `shorter.example.com`, you can use `curl` or your browser:
 
+**Basic Usage (shortest timeout):**
 ```bash
-    # Using curl will return the short URL as plain text
+    # The URL is the raw query string.
     curl "https://shorter.example.com/?https://www.google.com"
-    # Output: https://shorter.example.com/aBcDeF
+    # Output: https://shorter.example.com/a
+```
 
+**Advanced Usage (specifying length and timeout):**
+
+You can use query parameters to control the length of the random key and its corresponding timeout.
+
+*   `len=1`: Uses `LinkLen1` and `LinkLen1Timeout` (default).
+*   `len=2`: Uses `LinkLen2` and `LinkLen2Timeout`.
+*   `len=3`: Uses `LinkLen3` and `LinkLen3Timeout`.
+*   `len=c`: Uses `LinkLen3` plus a random few characters with the CustomTimeout duration.
+```bash
+    # Use the 'url' and 'len' parameters.
+    curl "https://shorter.example.com/?len=2&url=https://www.google.com"
+    # Output: https://shorter.example.com/gH
+
+    # When using a command-line tool like curl, wget, or PowerShell's Invoke-WebRequest, 
+    # the service will attempt to detect it and respond with the short URL as plain text, suitable for scripting.
     # Visiting the same URL in a browser will show a confirmation page.
 ```
 

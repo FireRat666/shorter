@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -1031,8 +1033,64 @@ func serveIndexPage(w http.ResponseWriter, r *http.Request) {
 	if r.URL.RawQuery != "" {
 		// This is a Quick Add request. We must apply the anonymous rate limiter.
 		quickAddHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var formURL string
+			var keyLength int
+			var linkTimeout time.Duration
+			var err error
+
 			subdomainCfg := getSubdomainConfig(r.Host)
-			formURL := r.URL.RawQuery // The raw query is the URL.
+
+			// Check for the new query param format vs the old raw query format.
+			queryParams, parseErr := url.ParseQuery(r.URL.RawQuery)
+			// We check parseErr != nil OR url param is empty to catch cases like `/?&len=2`
+			if parseErr != nil || queryParams.Get("url") == "" {
+				// Fallback to old behavior: raw query is the URL, use default length.
+				formURL = r.URL.RawQuery
+				keyLength = config.LinkLen1
+				linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen1Timeout)
+				if err != nil {
+					logErrors(w, r, errServerError, http.StatusInternalServerError, "Error parsing default link timeout duration: "+err.Error())
+					return
+				}
+			} else {
+				// New behavior: use query parameters.
+				formURL = queryParams.Get("url")
+				lenOpt := queryParams.Get("len")
+				if lenOpt == "" {
+					lenOpt = "1" // Default to shortest
+				}
+
+				switch lenOpt {
+				case "1":
+					keyLength = config.LinkLen1
+					linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen1Timeout)
+				case "2":
+					keyLength = config.LinkLen2
+					linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen2Timeout)
+				case "3":
+					keyLength = config.LinkLen3
+					linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen3Timeout)
+				case "c", "custom":
+					// Use LinkLen3 plus a random few characters, with the custom timeout.
+					// This ensures it's always longer and has more possibilities.
+					// Add a random number between 1 and 3 to the base length.
+					n, randErr := rand.Int(rand.Reader, big.NewInt(3)) // n will be in [0, 3)
+					if randErr != nil {
+						logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate random addition for key length: "+randErr.Error())
+						return
+					}
+					keyLength = config.LinkLen3 + int(n.Int64()) + 1 // +1 to make it [1, 3]
+					linkTimeout, err = time.ParseDuration(subdomainCfg.CustomTimeout)
+				default:
+					logErrors(w, r, "Invalid 'len' parameter. Must be 1, 2, 3, or 'c'.", http.StatusBadRequest, "Invalid quick-add len parameter: "+lenOpt)
+					return
+				}
+
+				if err != nil {
+					logErrors(w, r, errServerError, http.StatusInternalServerError, "Error parsing link timeout duration for quick-add: "+err.Error())
+					return
+				}
+			}
 
 			// Prepend https:// if no scheme is present.
 			if !strings.HasPrefix(formURL, "http://") && !strings.HasPrefix(formURL, "https://") {
@@ -1055,12 +1113,6 @@ func serveIndexPage(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			linkTimeout, err := time.ParseDuration(subdomainCfg.LinkLen1Timeout)
-			if err != nil {
-				logErrors(w, r, errServerError, http.StatusInternalServerError, "Error parsing default link timeout duration: "+err.Error())
-				return
-			}
-
 			scheme := "http"
 			if r.TLS != nil {
 				scheme = "https"
@@ -1075,7 +1127,7 @@ func serveIndexPage(w http.ResponseWriter, r *http.Request) {
 				ExpiresAt:    time.Now().Add(linkTimeout),
 			}
 
-			createAndRespond(w, r, link, config.LinkLen1, scheme)
+			createAndRespond(w, r, link, keyLength, scheme)
 		})
 
 		// Apply the middleware to our handler.
