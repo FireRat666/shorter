@@ -139,27 +139,28 @@ type linkCreatedPageVars struct {
 	Timeout        string
 	TimesAllowed   int
 	RemainingUses  int
+	KeyExtended    bool
 	CssSRIHash     string
 }
 
 type textDumpCreatedPageVars struct {
-	Domain         string
-	ShortURL       string
-	Timeout        string
-	TimesAllowed   int
-	RemainingUses  int
-	AbuseReporting AbuseReportingConfig
-	CssSRIHash     string
+	Domain        string
+	ShortURL      string
+	Timeout       string
+	TimesAllowed  int
+	RemainingUses int
+	KeyExtended   bool
+	CssSRIHash    string
 }
 
 type fileCreatedPageVars struct {
-	Domain         string
-	ShortURL       string
-	Timeout        string
-	TimesAllowed   int
-	RemainingUses  int
-	AbuseReporting AbuseReportingConfig
-	CssSRIHash     string
+	Domain        string
+	ShortURL      string
+	Timeout       string
+	TimesAllowed  int
+	RemainingUses int
+	KeyExtended   bool
+	CssSRIHash    string
 }
 
 type showFilePageVars struct {

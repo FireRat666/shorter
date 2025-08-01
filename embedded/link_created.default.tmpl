@@ -15,6 +15,9 @@
             <br>
             <p>This link will be removed on {{.Timeout}}.
             {{if gt .TimesAllowed 0}}<br>It can be used {{.RemainingUses}} time(s).{{end}}</p>
+			{{if .KeyExtended}}
+			<p class="info">Note: The requested key length was not available, so a longer key was generated to ensure uniqueness.</p>
+			{{end}}
         </div>
         <div class="tos">
             <input id="showQR" class="toggle-checkbox" type="checkbox" />

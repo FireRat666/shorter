@@ -1473,16 +1473,19 @@ func renderPasswordPrompt(w http.ResponseWriter, r *http.Request, key, errorMsg 
 func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLength int, scheme string, fileData ...[]byte) {
 	ctx := r.Context()
 	var err error
+	var keyExtended bool
 
 	// If the key is empty (not a custom key), generate a random one.
 	if link.Key == "" {
-		// Retry a few times in case of a random key collision.
-		for i := 0; i < 5; i++ {
-			link.Key, err = generateRandomKey(keyLength)
-			if err != nil {
-				logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate random key: "+err.Error())
-				return
-			}
+		// Generate the initial random key.
+		link.Key, err = generateRandomKey(keyLength)
+		if err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate initial random key: "+err.Error())
+			return
+		}
+
+		// Retry a few times on collision, extending the key each time.
+		for i := 0; i < 5; i++ { // Limit to 5 attempts to prevent infinite loops.
 			err = createLinkInDB(ctx, *link)
 
 			// If the insert was successful, we're done.
@@ -1492,7 +1495,15 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 
 			// Check if the error was a collision with an *active* link.
 			if errors.Is(err, errKeyCollision) {
-				slogger.Debug("Key collision with active link, generating new key...", "key", link.Key, "attempt", i+1)
+				keyExtended = true
+				slogger.Debug("Key collision with active link, appending character and retrying...", "key", link.Key, "attempt", i+1)
+				// Append one more random character and try again.
+				extraChar, randErr := generateRandomKey(1)
+				if randErr != nil {
+					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate extra random character for key: "+randErr.Error())
+					return
+				}
+				link.Key += extraChar
 				continue
 			}
 
@@ -1510,7 +1521,7 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 			if keyLength == 0 {
 				logErrors(w, r, errInvalidKeyUsed, http.StatusConflict, "Custom key is already in use by an active link.")
 			} else {
-				logErrors(w, r, "Could not generate a unique link. Please try a longer link length.", http.StatusConflict, "Failed to create link after multiple key collision retries.")
+				logErrors(w, r, "Could not generate a unique link. Please try again.", http.StatusConflict, "Failed to create link after multiple key collision retries.")
 			}
 			return
 		}
@@ -1565,6 +1576,7 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 			Timeout:        link.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
 			TimesAllowed:   link.TimesAllowed,
 			RemainingUses:  link.TimesAllowed, // On creation, remaining uses equals times allowed.
+			KeyExtended:    keyExtended,
 			CssSRIHash:     cssSRIHash,
 		}
 		if err := t.Execute(w, tmplArgs); err != nil {
@@ -1582,6 +1594,7 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 			Timeout:       link.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
 			TimesAllowed:  link.TimesAllowed,
 			RemainingUses: link.TimesAllowed,
+			KeyExtended:   keyExtended,
 			CssSRIHash:    cssSRIHash,
 		}
 		if err := t.Execute(w, tmplArgs); err != nil {
@@ -1599,6 +1612,7 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 			Timeout:       link.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
 			TimesAllowed:  link.TimesAllowed,
 			RemainingUses: link.TimesAllowed,
+			KeyExtended:   keyExtended,
 			CssSRIHash:    cssSRIHash,
 		}
 		if err := t.Execute(w, tmplArgs); err != nil {

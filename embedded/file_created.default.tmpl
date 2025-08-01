@@ -17,6 +17,9 @@
             {{if .TimesAllowed}}
             <p>This file can be downloaded {{.RemainingUses}} time(s).</p>
             {{end}}
+			{{if .KeyExtended}}
+			<p class="info">Note: The requested key length was not available, so a longer key was generated to ensure uniqueness.</p>
+			{{end}}
         </div>
     </div>
 </body>
