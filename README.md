@@ -45,7 +45,7 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
 *   **Deployment Ready**: Designed for modern deployment platforms like Render, with full support for configuration via environment variables.
 
 ### Extensibility
-*   **Public API**: A RESTful API for programmatic link creation, authenticated with secure bearer tokens.
+*   **Public API**: A RESTful API for programmatic link creation and deletion, authenticated with secure bearer tokens.
 *   **Customizable Theming**: Override the default HTML templates with your own to match your brand.
 
 ## Installation
@@ -181,7 +181,7 @@ With the configuration and environment variables set, you can trigger your first
 
 ## Public API
 
-The service provides a simple RESTful API for programmatic link creation.
+The service provides a simple RESTful API for programmatic link creation and deletion.
 
 ### Authentication
 
@@ -232,11 +232,41 @@ curl -X POST "https://shorter.example.com/api/v1/links" \
 }
 ```
 
+### Endpoint: Delete Link
+
+*   **URL**: `/api/v1/links`
+*   **Method**: `DELETE`
+*   **Headers**:
+    *   `Content-Type: application/json`
+    *   `Authorization: Bearer YOUR_API_KEY_HERE`
+*   **Body (JSON)**:
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `key` | string | Yes | The key of the link to delete. |
+| `domain` | string | No | The domain of the link to delete. Defaults to the service's primary domain. |
+
+#### Example Request (`curl`)
+
+```bash
+curl -X DELETE "https://shorter.example.com/api/v1/links" \
+-H "Authorization: Bearer YOUR_API_KEY_HERE" \
+-H "Content-Type: application/json" \
+-d '{
+  "key": "my-api-link",
+  "domain": "shorter.example.com"
+}'
+```
+
+#### Example Success Response (`204 No Content`)
+
+The server will respond with an empty body and a `204 No Content` status code on success.
+
 ## Future Ideas
 *   **Data Visualization**: Continue to expand the data visualization capabilities on the statistics page with more charts and interactive elements.
 *   **User Accounts**: Allow non-admin users to register for accounts to manage their own links and API keys, turning the service into a multi-tenant platform.
 *   **Link Descriptions**: Add a description field to links to make them easier to identify and manage in the admin panel.
-*   **API Expansion**: Expand the API to allow reading, updating, and deleting links for more powerful programmatic administration.
+*   **API Expansion**: Continue to expand the API to allow reading and updating links for more powerful programmatic administration.
 *   **Health Check Endpoint**: Create a dedicated `/health` endpoint for automated monitoring by deployment platforms.
 *   **Admin Audit Log**: Track all administrative actions (e.g., who deleted a link, changed a setting, or generated an API key) for security and accountability.
 

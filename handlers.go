@@ -387,11 +387,24 @@ func csrfProtect(next http.HandlerFunc) http.HandlerFunc {
 // handleAPIRoutes sets up a sub-router for all API endpoints.
 func handleAPIRoutes(mux *http.ServeMux) {
 	apiRouter := http.NewServeMux()
-	apiRouter.HandleFunc("/links", apiAuth(handleAPICreateLink))
+	apiRouter.HandleFunc("/links", apiAuth(handleAPILinks))
 
 	// This handler will strip the "/api/v1" prefix before passing to the apiRouter.
 	apiHandler := http.StripPrefix("/api/v1", apiRouter)
 	mux.Handle("/api/v1/", apiHandler)
+}
+
+// handleAPILinks is a routing function that dispatches API requests for the /links
+// endpoint to the correct handler based on the HTTP method.
+func handleAPILinks(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		handleAPICreateLink(w, r)
+	case http.MethodDelete:
+		handleAPIDeleteLink(w, r)
+	default:
+		respondWithError(w, http.StatusMethodNotAllowed, fmt.Sprintf("Method %s is not allowed for this endpoint", r.Method))
+	}
 }
 
 // respondWithJSON is a helper to send JSON responses.
@@ -460,11 +473,6 @@ func apiAuth(next http.HandlerFunc) http.HandlerFunc {
 
 // handleAPICreateLink handles requests to create a new link via the API.
 func handleAPICreateLink(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		respondWithError(w, http.StatusMethodNotAllowed, "Only POST method is allowed")
-		return
-	}
-
 	var req apiCreateLinkRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid JSON request body")
@@ -577,6 +585,65 @@ func handleAPICreateLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusCreated, response)
+}
+
+// handleAPIDeleteLink handles requests to delete a link via the API.
+func handleAPIDeleteLink(w http.ResponseWriter, r *http.Request) {
+	var req apiDeleteLinkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid JSON request body")
+		return
+	}
+
+	if req.Key == "" {
+		respondWithError(w, http.StatusBadRequest, "The 'key' field is required")
+		return
+	}
+
+	domain := req.Domain
+	if domain == "" {
+		domain = config.PrimaryDomain
+	}
+
+	// Get the API key token from the context to verify ownership.
+	apiKeyToken, ok := r.Context().Value(userContextKey).(string)
+	if !ok {
+		// This should not happen if apiAuth middleware is working correctly.
+		respondWithError(w, http.StatusInternalServerError, "Could not identify API key from request context.")
+		return
+	}
+
+	// Check if the link exists before trying to delete it. This allows us to
+	// also delete any associated uploaded files.
+	link, err := getLinkDetails(r.Context(), req.Key, domain)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to check for link existence.")
+		return
+	}
+	if link == nil {
+		// The link doesn't exist. Since DELETE is idempotent, this is a success.
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Ownership check: The API key in the request must match the creator of the link.
+	if !link.CreatedBy.Valid || link.CreatedBy.String != apiKeyToken {
+		respondWithError(w, http.StatusForbidden, "This API key does not have permission to delete this link.")
+		return
+	}
+
+	// If it's a file link, delete the associated file from disk.
+	if link.LinkType == "file" {
+		deleteUploadedFile(link.Key)
+	}
+
+	// Delete the link from the database.
+	if err := deleteLink(r.Context(), req.Key, domain); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to delete link.")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func handleCSPReport(w http.ResponseWriter, r *http.Request) {
@@ -1038,6 +1105,15 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 				logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Password prompt form parse error: "+err.Error())
 				return
 			}
+
+			// Verify CSRF token for the password submission.
+			submittedToken := r.FormValue("csrf_token")
+			expectedToken := getOrSetCSRFToken(w, r)
+			if submittedToken != expectedToken {
+				logErrors(w, r, "Forbidden", http.StatusForbidden, "CSRF token mismatch on password prompt")
+				return
+			}
+
 			password := r.FormValue("password")
 			// Compare the submitted password with the stored hash.
 			if bcrypt.CompareHashAndPassword([]byte(lnk.PasswordHash.String), []byte(password)) != nil {
@@ -1240,6 +1316,7 @@ func renderPasswordPrompt(w http.ResponseWriter, r *http.Request, key, errorMsg 
 	pageVars := passwordPromptPageVars{
 		Key:        key,
 		Error:      errorMsg,
+		CSRFToken:  getOrSetCSRFToken(w, r),
 		CssSRIHash: cssSRIHash,
 	}
 
@@ -1418,6 +1495,14 @@ func handleReportPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Verify CSRF token.
+		submittedToken := r.FormValue("csrf_token")
+		expectedToken := getOrSetCSRFToken(w, r)
+		if submittedToken != expectedToken {
+			logErrors(w, r, "Forbidden", http.StatusForbidden, "CSRF token mismatch on report form")
+			return
+		}
+
 		// Verify the hCaptcha response.
 		hCaptchaResponse := r.FormValue("h-captcha-response")
 		if !verifyHCaptcha(hCaptchaResponse, r.RemoteAddr) {
@@ -1467,6 +1552,7 @@ func renderReportPage(w http.ResponseWriter, r *http.Request, key, errorMsg stri
 		Key             string
 		Error           string
 		HCaptchaSiteKey string
+		CSRFToken       string
 		CaptchaActive   bool
 		CssSRIHash      string
 	}{
@@ -1474,6 +1560,7 @@ func renderReportPage(w http.ResponseWriter, r *http.Request, key, errorMsg stri
 		Key:             key,
 		Error:           errorMsg,
 		HCaptchaSiteKey: config.AbuseReporting.HCaptcha.SiteKey,
+		CSRFToken:       getOrSetCSRFToken(w, r),
 		CaptchaActive:   captchaActive,
 		CssSRIHash:      cssSRIHash,
 	}

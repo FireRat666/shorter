@@ -20,6 +20,7 @@
             <p class="info">{{.Error}}</p>
             {{end}}
             <form class="admin-form" method="POST" action="/report?key={{.Key}}">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <label for="comments">Reason for Report:</label>
                 <textarea id="comments" name="comments" rows="5" required></textarea>
                 <label for="email">Your Email (Optional):</label>

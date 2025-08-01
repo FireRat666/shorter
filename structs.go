@@ -371,6 +371,12 @@ type apiCreateLinkResponse struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+// apiDeleteLinkRequest defines the structure for a JSON request to delete a link via the API.
+type apiDeleteLinkRequest struct {
+	Key    string `json:"key"`
+	Domain string `json:"domain,omitempty"` // Optional. If not provided, use PrimaryDomain.
+}
+
 // CSPReport represents the structure of a CSP violation report sent by the browser.
 type CSPReport struct {
 	CSPReport struct {
