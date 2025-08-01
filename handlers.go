@@ -1459,17 +1459,22 @@ func renderReportPage(w http.ResponseWriter, r *http.Request, key, errorMsg stri
 		return
 	}
 
+	// Captcha is only active if the feature is enabled AND a site key is provided.
+	captchaActive := config.AbuseReporting.Enabled && config.AbuseReporting.HCaptcha.SiteKey != ""
+
 	pageVars := struct {
 		ReportedURL     string
 		Key             string
 		Error           string
 		HCaptchaSiteKey string
+		CaptchaActive   bool
 		CssSRIHash      string
 	}{
 		ReportedURL:     r.Host + "/" + key,
 		Key:             key,
 		Error:           errorMsg,
 		HCaptchaSiteKey: config.AbuseReporting.HCaptcha.SiteKey,
+		CaptchaActive:   captchaActive,
 		CssSRIHash:      cssSRIHash,
 	}
 
@@ -1481,7 +1486,7 @@ func renderReportPage(w http.ResponseWriter, r *http.Request, key, errorMsg stri
 // verifyHCaptcha sends a request to the hCaptcha API to verify a user's response.
 func verifyHCaptcha(response, remoteIP string) bool {
 	if config.AbuseReporting.HCaptcha.SecretKey == "" {
-		slogger.Error("hCaptcha secret key is not configured. CAPTCHA verification is disabled.")
+		slogger.Info("hCaptcha secret key is not configured. CAPTCHA verification is disabled, allowing submission.")
 		return true
 	}
 

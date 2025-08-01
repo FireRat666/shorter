@@ -3,7 +3,9 @@
 <head>
     <meta name="color-scheme" content="dark">
     <link rel="stylesheet" type="text/css" href="/shorter.css" integrity="{{.CssSRIHash}}">
+    {{if .CaptchaActive}}
     <script src="https://js.hcaptcha.com/1/api.js" async defer crossorigin="anonymous"></script>
+    {{end}}
     <title>Report Abuse</title>
 </head>
 <body>
@@ -22,7 +24,9 @@
                 <textarea id="comments" name="comments" rows="5" required></textarea>
                 <label for="email">Your Email (Optional):</label>
                 <input type="email" id="email" name="email" class="inputbox" placeholder="Used for follow-up if needed">
+                {{if .CaptchaActive}}
                 <div class="h-captcha" data-sitekey="{{.HCaptchaSiteKey}}"></div>
+                {{end}}
                 <input type="submit" value="Submit Report" class="admin-submit-button">
             </form>
         </div>
