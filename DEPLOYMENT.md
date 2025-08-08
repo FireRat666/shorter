@@ -31,6 +31,17 @@ In your Web Service's "Environment" tab, add the following environment variables
 * `LOG_SEP`:
   * **Value**: This should be a long, random, secret string. You can generate one locally using a command like `openssl rand -hex 16`.
 
+* `SHORTER_HMAC_SECRET`:
+  * **Value**: A **base64-encoded** secret key used for signing session cookies and other internal data. This is critical for security. If not set, the application will try to generate a key file (`hmac_secret.key`), which may not work in ephemeral or read-only deployment environments. It is **strongly recommended** to set this for production.
+  * **How to Generate a Value**:
+  * You can generate a secure, random, base64-encoded key with OpenSSL:
+
+      ```bash
+      openssl rand -base64 32
+      ```
+
+  * Copy the output and use it as the value for this environment variable.
+
 * `SHORTER_DOMAINS`:
   * **Value**: A comma-separated list of the domains your service will run on. For a new Render service, this would be your `onrender.com` URL (e.g., `shorter-app.onrender.com`). If you add a custom domain later, you can add it here (e.g., `shorter-app.onrender.com,s.example.com`).
 
