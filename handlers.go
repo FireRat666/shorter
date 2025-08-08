@@ -1265,11 +1265,18 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 				renderPasswordPrompt(w, r, key, "Invalid password.")
 				return
 			}
-			// Password is correct. The request can now proceed to the normal link handling below.
+			// Password is correct. Create a temporary auth cookie to avoid re-prompting.
+			createLinkAuthCookie(w, r, key)
+			// The request can now proceed to the normal link handling below.
 		} else {
-			// This is a GET request. Show the password prompt page.
-			renderPasswordPrompt(w, r, key, "")
-			return
+			// This is a GET request. Before showing the prompt, check if they have a valid auth cookie.
+			if hasValidLinkAuthCookie(r, key) {
+				// Cookie is valid, proceed directly to content.
+			} else {
+				// No valid cookie, show the password prompt page.
+				renderPasswordPrompt(w, r, key, "")
+				return
+			}
 		}
 	}
 
@@ -1468,6 +1475,24 @@ func renderPasswordPrompt(w http.ResponseWriter, r *http.Request, key, errorMsg 
 	if err := passwordTmpl.Execute(w, pageVars); err != nil {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute password_prompt template: "+err.Error())
 	}
+}
+
+// createLinkAuthCookie creates a temporary, signed cookie to remember that the user
+// has successfully authenticated for a specific link.
+func createLinkAuthCookie(w http.ResponseWriter, r *http.Request, linkKey string) {
+	// The message is the link key. The signature proves it's from us.
+	signature := generateHMAC([]byte(linkKey))
+	cookieValue := fmt.Sprintf("%s|%s", linkKey, base64.StdEncoding.EncodeToString(signature))
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "link_auth_" + linkKey, // Unique name per link
+		Value:    cookieValue,
+		Expires:  time.Now().Add(5 * time.Minute), // Short-lived
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		Path:     "/" + linkKey,
+	})
 }
 
 func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLength int, scheme string, fileData ...[]byte) {

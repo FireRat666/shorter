@@ -37,6 +37,7 @@ type Config struct {
 	MalwareProtection        MalwareProtectionConfig    `yaml:"MalwareProtection"`
 	Defaults                 SubdomainConfig            `yaml:"Defaults"`
 	Subdomains               map[string]SubdomainConfig `yaml:"Subdomains"`
+	hmacSecret               []byte                     // Set programmatically
 }
 
 // AdminConfig holds the admin user credentials.

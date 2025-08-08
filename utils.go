@@ -2,14 +2,17 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	mrand "math/rand"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -132,4 +135,45 @@ func generateRandomKey(length int) (string, error) {
 	}
 
 	return string(key), nil
+}
+
+// hasValidLinkAuthCookie checks for a valid, signed cookie that grants temporary
+// access to a password-protected link.
+func hasValidLinkAuthCookie(r *http.Request, linkKey string) bool {
+	cookie, err := r.Cookie("link_auth_" + linkKey)
+	if err != nil {
+		return false // No cookie found
+	}
+
+	// The cookie value should be "linkKey|signature".
+	parts := strings.Split(cookie.Value, "|")
+	if len(parts) != 2 {
+		return false // Malformed cookie
+	}
+
+	// Ensure the key in the cookie matches the link we're trying to access.
+	if parts[0] != linkKey {
+		return false
+	}
+
+	signature, err := base64.StdEncoding.DecodeString(parts[1])
+	if err != nil {
+		return false // Malformed signature
+	}
+
+	// Verify the signature to ensure the cookie hasn't been tampered with.
+	return verifyHMAC([]byte(linkKey), signature)
+}
+
+// generateHMAC creates a SHA256 HMAC signature for a given message.
+func generateHMAC(message []byte) []byte {
+	mac := hmac.New(sha256.New, config.hmacSecret)
+	mac.Write(message)
+	return mac.Sum(nil)
+}
+
+// verifyHMAC checks if a given signature is a valid HMAC for the message.
+func verifyHMAC(message, signature []byte) bool {
+	expectedMAC := generateHMAC(message)
+	return hmac.Equal(signature, expectedMAC)
 }

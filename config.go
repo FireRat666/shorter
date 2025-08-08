@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -58,6 +60,12 @@ func loadConfig() (err error) {
 		if !filepath.IsAbs(config.BaseDir) {
 			config.BaseDir = filepath.Join(".", config.BaseDir)
 		}
+
+		// Generate or load the HMAC secret.
+		if err := setupHMAC(); err != nil {
+			configErr = fmt.Errorf("failed to set up HMAC secret: %w", err)
+			return
+		}
 	})
 	return configErr
 }
@@ -103,3 +111,46 @@ func overrideConfigWithEnv() {
 		config.FileUploadsEnabled = strings.ToLower(fileUploadsEnabled) == "true"
 	}
 }
+
+// setupHMAC ensures that a secret key for signing cookies is available.
+// It tries to load it from an environment variable first, then from a file.
+// If neither exists, it generates a new key and saves it to the file.
+func setupHMAC() error {
+	// 1. Try to load from environment variable (highest priority).
+	hmacSecretStr := os.Getenv("SHORTER_HMAC_SECRET")
+	if hmacSecretStr != "" {
+		decoded, err := base64.StdEncoding.DecodeString(hmacSecretStr)
+		if err != nil {
+			return fmt.Errorf("failed to decode SHORTER_HMAC_SECRET from base64: %w", err)
+		}
+		config.hmacSecret = decoded
+		return nil
+	}
+
+	// 2. If not in env, try to load from file.
+	hmacFilePath := filepath.Join(config.BaseDir, "hmac_secret.key")
+	key, err := os.ReadFile(hmacFilePath)
+	if err == nil {
+		config.hmacSecret = key
+		return nil
+	}
+
+	// 3. If file doesn't exist, generate a new key.
+	if os.IsNotExist(err) {
+		newKey := make([]byte, 32) // 256 bits
+		if _, err := rand.Read(newKey); err != nil {
+			return fmt.Errorf("failed to generate new HMAC secret: %w", err)
+		}
+		config.hmacSecret = newKey
+
+		// 4. Save the new key to the file for future use.
+		if err := os.WriteFile(hmacFilePath, newKey, 0600); err != nil {
+			return fmt.Errorf("failed to save new HMAC secret to %s: %w", hmacFilePath, err)
+		}
+		return nil
+	}
+
+	// 5. If there was some other error reading the file, return it.
+	return fmt.Errorf("failed to read HMAC secret from %s: %w", hmacFilePath, err)
+}
+
