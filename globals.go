@@ -41,4 +41,5 @@ var (
 	cssSRIHash        string
 	adminJsSRIHash    string
 	showTextJsSRIHash string
+	indexJsSRIHash    string
 )

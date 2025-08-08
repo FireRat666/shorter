@@ -214,6 +214,7 @@ type AbuseReport struct {
 // IndexPageVars holds the data needed to render the index page template.
 type IndexPageVars struct {
 	CssSRIHash         string
+	IndexJsSRIHash     string
 	LinkLen1Display    string
 	LinkLen2Display    string
 	LinkLen3Display    string
@@ -222,6 +223,7 @@ type IndexPageVars struct {
 	MaxURLSize         int
 	FileUploadsEnabled bool
 	MaxTextSize        int
+	MaxFileSize        string
 	CSRFToken          string
 }
 

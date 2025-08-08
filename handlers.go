@@ -1146,6 +1146,7 @@ func serveIndexPage(w http.ResponseWriter, r *http.Request) {
 	}
 	// Prepare the data for the index page template.
 	pageVars := IndexPageVars{
+		IndexJsSRIHash:     indexJsSRIHash,
 		CssSRIHash:         cssSRIHash,
 		LinkLen1Display:    subdomainCfg.LinkLen1Display,
 		LinkLen2Display:    subdomainCfg.LinkLen2Display,
@@ -1155,6 +1156,7 @@ func serveIndexPage(w http.ResponseWriter, r *http.Request) {
 		MaxURLSize:         config.MaxURLSize,
 		FileUploadsEnabled: config.FileUploadsEnabled,
 		MaxTextSize:        config.MaxTextSize,
+		MaxFileSize:        formatFileSize(config.MaxRequestSize),
 		CSRFToken:          csrfToken,
 	}
 

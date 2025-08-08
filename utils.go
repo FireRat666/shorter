@@ -29,7 +29,7 @@ func calculateSRIHashes() error {
 	cssSRIHash = "sha256-" + base64.StdEncoding.EncodeToString(cssHash[:])
 
 	// Read each JS file once, store its content, and calculate the hash from the stored content.
-	jsFilesToLoad := []string{"admin.js", "showText.js"}
+	jsFilesToLoad := []string{"admin.js", "showText.js", "index.js"}
 	for _, fileName := range jsFilesToLoad {
 		slogger.Debug("Attempting to load JS file", "file", fileName)
 		filePath := filepath.Join(config.BaseDir, "js", fileName)
@@ -53,6 +53,8 @@ func calculateSRIHashes() error {
 			adminJsSRIHash = sriHash
 		case "showText.js":
 			showTextJsSRIHash = sriHash
+		case "index.js":
+			indexJsSRIHash = sriHash
 		}
 	}
 

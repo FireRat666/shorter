@@ -50,9 +50,12 @@
                         <textarea form="shortener" rows="7" cols="80" name="text" maxlength="{{.MaxTextSize}}"></textarea>
                     </div>
                     <div id="fileDiv">
-                        <span>Select file to upload:</span>
-                        <label for="file-upload" class="file-upload">Choose File</label>
-                        <input type="file" id="file-upload" name="file">
+                        <span>Select file to upload (Max: {{.MaxFileSize}}):</span>
+                        <div class="file-box">
+                            <label for="file-upload" class="file-upload">Choose File</label>
+                            <input type="file" id="file-upload" name="file">
+                            <span id="file-name">No file chosen</span>
+                        </div>
                     </div>
                 </div>
                 <div class="radio-box">
@@ -93,5 +96,7 @@
     <div class="footer-link">
         <a href="https://github.com/FireRat666/shorter" target="_blank" rel="noopener noreferrer">Source Code on GitHub</a>
     </div>
+    {{/* The defer attribute ensures the script runs after the document is parsed, which is what DOMContentLoaded does. */}}
+    <script src="/js/index.js" integrity="{{.IndexJsSRIHash}}" crossorigin="anonymous" defer></script>
 </body>
 </html>
