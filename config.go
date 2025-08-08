@@ -97,4 +97,9 @@ func overrideConfigWithEnv() {
 	if adminPassHash := os.Getenv("ADMIN_PASS_HASH"); adminPassHash != "" {
 		config.Admin.PassHash = adminPassHash
 	}
+
+	// Allow overriding FileUploadsEnabled via environment variable.
+	if fileUploadsEnabled := os.Getenv("SHORTER_FILE_UPLOADS_ENABLED"); fileUploadsEnabled != "" {
+		config.FileUploadsEnabled = strings.ToLower(fileUploadsEnabled) == "true"
+	}
 }

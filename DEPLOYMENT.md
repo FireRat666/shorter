@@ -90,7 +90,8 @@ In your Web Service's "Environment" tab, add the following environment variables
     *   `HCAPTCHA_SITE_KEY` is your public site key.
     *   `HCAPTCHA_SECRET_KEY` is your private secret key. It is strongly recommended to set this as a secret.
 
-Render will automatically set the `PORT` environment variable, which the application is configured to use.
+*   `SHORTER_FILE_UPLOADS_ENABLED` (Optional):
+    *   **Value**: Set to `true` to enable file uploads. By default, file uploads are disabled.
 
 ### 5. Deploy
 With the configuration and environment variables set, you can trigger your first deployment. The application will start, connect to the database, and be available at your Render URL.
