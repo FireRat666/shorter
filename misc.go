@@ -59,12 +59,43 @@ func addHeaders(w http.ResponseWriter, _ *http.Request) {
 // It starts with the default configuration and then overrides it with any
 // settings specified for the particular host.
 func getSubdomainConfig(host string) SubdomainConfig {
-	// Start with a copy of the default configuration.
-	mergedConfig := config.Defaults
+	// Start with the global config values.
+	mergedConfig := SubdomainConfig{
+		LinkLen1:         config.LinkLen1,
+		LinkLen2:         config.LinkLen2,
+		LinkLen3:         config.LinkLen3,
+		MaxKeyLen:        config.MaxKeyLen,
+		MaxRequestSize:   config.MaxRequestSize,
+		LinkLen1Timeout:  config.Defaults.LinkLen1Timeout,
+		LinkLen1Display:  config.Defaults.LinkLen1Display,
+		LinkLen2Timeout:  config.Defaults.LinkLen2Timeout,
+		LinkLen2Display:  config.Defaults.LinkLen2Display,
+		LinkLen3Timeout:  config.Defaults.LinkLen3Timeout,
+		LinkLen3Display:  config.Defaults.LinkLen3Display,
+		CustomTimeout:    config.Defaults.CustomTimeout,
+		CustomDisplay:    config.Defaults.CustomDisplay,
+		LinkAccessMaxNr:  config.Defaults.LinkAccessMaxNr,
+		StaticLinks:      config.Defaults.StaticLinks,
+	}
 
 	// Check if a specific configuration exists for this host.
 	if subConfig, ok := config.Subdomains[host]; ok {
 		// Override defaults with specific settings if they are not zero-valued.
+		if subConfig.LinkLen1 != 0 {
+			mergedConfig.LinkLen1 = subConfig.LinkLen1
+		}
+		if subConfig.LinkLen2 != 0 {
+			mergedConfig.LinkLen2 = subConfig.LinkLen2
+		}
+		if subConfig.LinkLen3 != 0 {
+			mergedConfig.LinkLen3 = subConfig.LinkLen3
+		}
+		if subConfig.MaxKeyLen != 0 {
+			mergedConfig.MaxKeyLen = subConfig.MaxKeyLen
+		}
+		if subConfig.MaxRequestSize != 0 {
+			mergedConfig.MaxRequestSize = subConfig.MaxRequestSize
+		}
 		if subConfig.LinkLen1Timeout != "" {
 			mergedConfig.LinkLen1Timeout = subConfig.LinkLen1Timeout
 		}

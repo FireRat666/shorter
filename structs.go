@@ -90,6 +90,11 @@ type APIRateLimitConfig struct {
 
 // SubdomainConfig holds settings that can be applied globally or per-subdomain.
 type SubdomainConfig struct {
+	LinkLen1        int               `yaml:"LinkLen1,omitempty"`
+	LinkLen2        int               `yaml:"LinkLen2,omitempty"`
+	LinkLen3        int               `yaml:"LinkLen3,omitempty"`
+	MaxKeyLen       int               `yaml:"MaxKeyLen,omitempty"`
+	MaxRequestSize  int64             `yaml:"MaxRequestSize,omitempty"`
 	LinkLen1Timeout string            `yaml:"LinkLen1Timeout,omitempty"`
 	LinkLen1Display string            `yaml:"LinkLen1Display,omitempty"`
 	LinkLen2Timeout string            `yaml:"LinkLen2Timeout,omitempty"`

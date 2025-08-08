@@ -134,9 +134,9 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 
 	// Create a map for display that explicitly excludes the primary domain.
 	displaySubdomains := make(map[string]SubdomainConfig)
-	for domain, subConfig := range config.Subdomains {
+	for domain := range config.Subdomains {
 		if domain != config.PrimaryDomain {
-			displaySubdomains[domain] = subConfig
+			displaySubdomains[domain] = getSubdomainConfig(domain)
 		}
 	}
 
@@ -702,13 +702,16 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Confirm that the domain is a configured domain.
-		// After consolidation, config.Subdomains contains all valid domains.
-		subdomainCfg, ok := config.Subdomains[domain]
-		if !ok {
-			logErrors(w, r, "Domain not found.", http.StatusNotFound, "Admin tried to edit non-existent domain: "+domain)
-			return
-		}
+		// Get the fully resolved config for the domain.
+		subdomainCfg := getSubdomainConfig(domain)
+
+		// Create a struct holding the true default values for the template to compare against.
+		templateDefaults := config.Defaults
+		templateDefaults.LinkLen1 = config.LinkLen1
+		templateDefaults.LinkLen2 = config.LinkLen2
+		templateDefaults.LinkLen3 = config.LinkLen3
+		templateDefaults.MaxKeyLen = config.MaxKeyLen
+		templateDefaults.MaxRequestSize = config.MaxRequestSize
 
 		editTmpl, ok := templateMap["admin_edit"]
 		if !ok {
@@ -742,7 +745,7 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 		pageVars := adminEditPageVars{
 			Domain:         domain,
 			Config:         subdomainCfg,
-			Defaults:       config.Defaults,
+			Defaults:       templateDefaults, // Pass the correctly populated defaults
 			Links:          links,
 			CurrentPage:    page,
 			TotalPages:     totalPages,
@@ -817,7 +820,7 @@ func handleAdminUpdateConfig(w http.ResponseWriter, r *http.Request, domain stri
 	}
 
 	// Redirect back to the admin page to show the updated list.
-	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
 }
 
 func handleAdminAddStaticLink(w http.ResponseWriter, r *http.Request, domain string) {
@@ -1228,4 +1231,72 @@ func handleAdminAPIKeysPage(w http.ResponseWriter, r *http.Request) {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_api_keys template: "+err.Error())
 	}
 	logOK(r, http.StatusOK)
+}
+func parseSubdomainForm(r *http.Request) (SubdomainConfig, error) {
+	// This helper function parses form values and returns a SubdomainConfig.
+	// It's used by both create and update handlers.
+	// Note: This function does NOT handle StaticLinks, as they are managed
+	// separately on the edit page.
+	newConfig := SubdomainConfig{}
+
+	// Helper function to parse an integer form value.
+	parseInt := func(formValue string) (int, error) {
+		if formValue == "" {
+			return 0, nil // Treat empty string as zero, to be ignored.
+		}
+		return strconv.Atoi(formValue)
+	}
+
+	// Helper function to parse an int64 form value.
+	parseInt64 := func(formValue string) (int64, error) {
+		if formValue == "" {
+			return 0, nil // Treat empty string as zero.
+		}
+		return strconv.ParseInt(formValue, 10, 64)
+	}
+
+	var err error
+	newConfig.LinkLen1, err = parseInt(r.FormValue("LinkLen1"))
+	if err != nil {
+		return SubdomainConfig{}, fmt.Errorf("invalid value for Link Length 1: %s", r.FormValue("LinkLen1"))
+	}
+	newConfig.LinkLen2, err = parseInt(r.FormValue("LinkLen2"))
+	if err != nil {
+		return SubdomainConfig{}, fmt.Errorf("invalid value for Link Length 2: %s", r.FormValue("LinkLen2"))
+	}
+	newConfig.LinkLen3, err = parseInt(r.FormValue("LinkLen3"))
+	if err != nil {
+		return SubdomainConfig{}, fmt.Errorf("invalid value for Link Length 3: %s", r.FormValue("LinkLen3"))
+	}
+	newConfig.MaxKeyLen, err = parseInt(r.FormValue("MaxKeyLen"))
+	if err != nil {
+		return SubdomainConfig{}, fmt.Errorf("invalid value for Max Key Length: %s", r.FormValue("MaxKeyLen"))
+	}
+	newConfig.MaxRequestSize, err = parseInt64(r.FormValue("MaxRequestSize"))
+	if err != nil {
+		return SubdomainConfig{}, fmt.Errorf("invalid value for Max Request Size: %s", r.FormValue("MaxRequestSize"))
+	}
+
+	// Timeouts and Display settings are strings, so we just assign them.
+	// The getSubdomainConfig function will then correctly merge these overrides
+	// with the global defaults.
+	newConfig.LinkLen1Timeout = r.FormValue("LinkLen1Timeout")
+	newConfig.LinkLen1Display = r.FormValue("LinkLen1Display")
+	newConfig.LinkLen2Timeout = r.FormValue("LinkLen2Timeout")
+	newConfig.LinkLen2Display = r.FormValue("LinkLen2Display")
+	newConfig.LinkLen3Timeout = r.FormValue("LinkLen3Timeout")
+	newConfig.LinkLen3Display = r.FormValue("LinkLen3Display")
+	newConfig.CustomTimeout = r.FormValue("CustomTimeout")
+	newConfig.CustomDisplay = r.FormValue("CustomDisplay")
+
+	maxUsesStr := r.FormValue("LinkAccessMaxNr")
+	if maxUsesStr != "" {
+		maxUses, err := strconv.Atoi(maxUsesStr)
+		if err != nil {
+			return SubdomainConfig{}, fmt.Errorf("invalid value for Max Uses: %s", maxUsesStr)
+		}
+		newConfig.LinkAccessMaxNr = maxUses
+	}
+
+	return newConfig, nil
 }

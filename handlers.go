@@ -84,13 +84,13 @@ func handlePOST(w http.ResponseWriter, r *http.Request) {
 	switch length {
 	case "1":
 		linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen1Timeout)
-		keyLength = config.LinkLen1
+		keyLength = subdomainCfg.LinkLen1
 	case "2":
 		linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen2Timeout)
-		keyLength = config.LinkLen2
+		keyLength = subdomainCfg.LinkLen2
 	case "3":
 		linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen3Timeout)
-		keyLength = config.LinkLen3
+		keyLength = subdomainCfg.LinkLen3
 	case "custom":
 		linkTimeout, err = time.ParseDuration(subdomainCfg.CustomTimeout)
 		keyLength = 0 // Custom key, length is variable
@@ -108,7 +108,7 @@ func handlePOST(w http.ResponseWriter, r *http.Request) {
 	customKey := ""
 	if length == "custom" {
 		customKey = r.Form.Get("custom")
-		if !validate(customKey) || len(customKey) < 4 || len(customKey) > config.MaxKeyLen {
+		if !validate(customKey) || len(customKey) < 4 || len(customKey) > subdomainCfg.MaxKeyLen {
 			logErrors(w, r, errInvalidCustomKey, http.StatusBadRequest, "Invalid custom key.")
 			return
 		}
@@ -238,7 +238,7 @@ func handlePOST(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Use ParseMultipartForm to handle file uploads.
-		if err := r.ParseMultipartForm(config.MaxRequestSize); err != nil {
+		if err := r.ParseMultipartForm(subdomainCfg.MaxRequestSize); err != nil {
 			// Check for the specific error when the content type is wrong.
 			if errors.Is(err, http.ErrNotMultipart) {
 				logErrors(w, r, "Invalid form encoding for file upload.", http.StatusBadRequest, "File upload attempt with wrong form enctype: "+err.Error())
@@ -542,11 +542,12 @@ func handleAPICreateLink(w http.ResponseWriter, r *http.Request) {
 		link.PasswordHash.Valid = true
 	}
 
+	var keyLength int
 	// Create the link in the database.
 	if link.Key == "" {
 		// No custom key provided, generate a random one.
 		// Use a sensible default length for API-generated keys.
-		keyLength := config.LinkLen2
+		keyLength = config.LinkLen2
 		for i := 0; i < 5; i++ { // Retry a few times on collision.
 			link.Key, err = generateRandomKey(keyLength)
 			if err != nil {
@@ -566,15 +567,22 @@ func handleAPICreateLink(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		// Custom key was provided.
+		keyLength = 0
 		err = createLinkInDB(r.Context(), *link)
 	}
 
 	if err != nil {
 		if errors.Is(err, errKeyCollision) {
-			respondWithError(w, http.StatusConflict, "The requested custom_key is already in use by an active link.")
-		} else {
-			respondWithError(w, http.StatusInternalServerError, "Failed to create link in database.")
+			// keyLength is 0 for custom keys, non-zero for random keys.
+			if keyLength == 0 {
+				respondWithError(w, http.StatusConflict, "The requested custom_key is already in use by an active link.")
+			} else {
+				respondWithError(w, http.StatusConflict, "Could not generate a unique link. Please try again.")
+			}
+			return
 		}
+		// For all other errors, use the generic server error message.
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to create link in database: "+err.Error())
 		return
 	}
 
@@ -600,7 +608,7 @@ func handleAPIDeleteLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Key == "" {
-		respondWithError(w, http.StatusBadRequest, "The 'key' field is required")
+		respondWithError(w, http.StatusBadRequest, "The 'key' field is.Required")
 		return
 	}
 
@@ -757,51 +765,6 @@ func handleCSPReport(w http.ResponseWriter, r *http.Request) {
 	slogger.Warn("CSP Violation Reported", "report", report.CSPReport)
 	// Respond with a 204 No Content, as is standard for reporting endpoints.
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// parseSubdomainForm extracts and validates subdomain configuration from a form submission.
-// This helper is used by both create and update handlers to reduce code duplication.
-func parseSubdomainForm(r *http.Request) (SubdomainConfig, error) {
-	// When parsing the form, an empty value means "use the default",
-	// so we store an empty string/zero value in the config to represent this.
-	// The getSubdomainConfig function will then correctly merge these overrides
-	// with the site-wide defaults.
-	newConfig := SubdomainConfig{
-		LinkLen1Timeout: r.FormValue("link_len1_timeout"),
-		LinkLen1Display: r.FormValue("link_len1_display"),
-		LinkLen2Timeout: r.FormValue("link_len2_timeout"),
-		LinkLen2Display: r.FormValue("link_len2_display"),
-		LinkLen3Timeout: r.FormValue("link_len3_timeout"),
-		LinkLen3Display: r.FormValue("link_len3_display"),
-		CustomTimeout:   r.FormValue("custom_timeout"),
-		CustomDisplay:   r.FormValue("custom_display"),
-	}
-
-	// For the numeric value, if it's empty or invalid, we store 0,
-	// which also signifies "use the default" in our merge logic.
-	maxUsesStr := r.FormValue("max_uses")
-	var maxUses int
-	if maxUsesStr != "" {
-		var err error
-		maxUses, err = strconv.Atoi(maxUsesStr)
-		if err != nil || maxUses < 0 {
-			return SubdomainConfig{}, fmt.Errorf("invalid value for Max Uses: %s", maxUsesStr)
-		}
-	}
-	newConfig.LinkAccessMaxNr = maxUses
-
-	// Validate all timeout duration formats if they are not empty.
-	timeouts := []string{
-		newConfig.LinkLen1Timeout, newConfig.LinkLen2Timeout, newConfig.LinkLen3Timeout, newConfig.CustomTimeout,
-	}
-	for _, t := range timeouts {
-		if t != "" {
-			if _, err := time.ParseDuration(t); err != nil {
-				return SubdomainConfig{}, fmt.Errorf("invalid timeout duration format: %s", t)
-			}
-		}
-	}
-	return newConfig, nil
 }
 
 // handleLoginPage serves the login page for GET requests and handles login form submissions for POST requests.
@@ -1046,7 +1009,7 @@ func serveIndexPage(w http.ResponseWriter, r *http.Request) {
 			if parseErr != nil || queryParams.Get("url") == "" {
 				// Fallback to old behavior: raw query is the URL, use default length.
 				formURL = r.URL.RawQuery
-				keyLength = config.LinkLen1
+				keyLength = subdomainCfg.LinkLen1
 				linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen1Timeout)
 				if err != nil {
 					logErrors(w, r, errServerError, http.StatusInternalServerError, "Error parsing default link timeout duration: "+err.Error())
@@ -1062,13 +1025,13 @@ func serveIndexPage(w http.ResponseWriter, r *http.Request) {
 
 				switch lenOpt {
 				case "1":
-					keyLength = config.LinkLen1
+					keyLength = subdomainCfg.LinkLen1
 					linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen1Timeout)
 				case "2":
-					keyLength = config.LinkLen2
+					keyLength = subdomainCfg.LinkLen2
 					linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen2Timeout)
 				case "3":
-					keyLength = config.LinkLen3
+					keyLength = subdomainCfg.LinkLen3
 					linkTimeout, err = time.ParseDuration(subdomainCfg.LinkLen3Timeout)
 				case "c", "custom":
 					// Use LinkLen3 plus a random few characters, with the custom timeout.
@@ -1079,7 +1042,7 @@ func serveIndexPage(w http.ResponseWriter, r *http.Request) {
 						logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate random addition for key length: "+randErr.Error())
 						return
 					}
-					keyLength = config.LinkLen3 + int(n.Int64()) + 1 // +1 to make it [1, 3]
+					keyLength = subdomainCfg.LinkLen3 + int(n.Int64()) + 1 // +1 to make it [1, 3]
 					linkTimeout, err = time.ParseDuration(subdomainCfg.CustomTimeout)
 				default:
 					logErrors(w, r, "Invalid 'len' parameter. Must be 1, 2, 3, or 'c'.", http.StatusBadRequest, "Invalid quick-add len parameter: "+lenOpt)
@@ -1148,15 +1111,15 @@ func serveIndexPage(w http.ResponseWriter, r *http.Request) {
 	pageVars := IndexPageVars{
 		IndexJsSRIHash:     indexJsSRIHash,
 		CssSRIHash:         cssSRIHash,
-		LinkLen1Display:    subdomainCfg.LinkLen1Display,
-		LinkLen2Display:    subdomainCfg.LinkLen2Display,
-		LinkLen3Display:    subdomainCfg.LinkLen3Display,
-		CustomDisplay:      subdomainCfg.CustomDisplay,
+		LinkLen1Display:    fmt.Sprintf("%s (%d chars)", subdomainCfg.LinkLen1Display, subdomainCfg.LinkLen1),
+		LinkLen2Display:    fmt.Sprintf("%s (%d chars)", subdomainCfg.LinkLen2Display, subdomainCfg.LinkLen2),
+		LinkLen3Display:    fmt.Sprintf("%s (%d chars)", subdomainCfg.LinkLen3Display, subdomainCfg.LinkLen3),
+		CustomDisplay:      fmt.Sprintf("%s (up to %d chars)", subdomainCfg.CustomDisplay, subdomainCfg.MaxKeyLen),
 		LinkAccessMaxNr:    subdomainCfg.LinkAccessMaxNr,
 		MaxURLSize:         config.MaxURLSize,
 		FileUploadsEnabled: config.FileUploadsEnabled,
 		MaxTextSize:        config.MaxTextSize,
-		MaxFileSize:        formatFileSize(config.MaxRequestSize),
+		MaxFileSize:        formatFileSize(subdomainCfg.MaxRequestSize),
 		CSRFToken:          csrfToken,
 	}
 
