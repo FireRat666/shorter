@@ -52,7 +52,9 @@ func handleRoot(mux *http.ServeMux) {
 			// If the POST is to the root path, it's a new link creation.
 			if r.URL.Path == "/" {
 				// Chain the middlewares: rate limit -> csrf -> handler
-				finalHandler := anonymousRateLimitMiddleware(csrfProtect(handlePOST))
+				// Get the subdomain config here to pass to the rate limit middleware.
+				subdomainCfg := getSubdomainConfig(r.Host)
+				finalHandler := anonymousRateLimitMiddleware(subdomainCfg.AnonymousRateLimit, csrfProtect(handlePOST))
 				finalHandler.ServeHTTP(w, r)
 			} else {
 				// Otherwise, it's likely a password submission for an existing link.
@@ -277,7 +279,7 @@ type contextKey string
 const userContextKey = contextKey("userID")
 
 // sessionAuth is a middleware that protects handlers by requiring a valid session cookie.
-func sessionAuth(next http.HandlerFunc) http.HandlerFunc {
+func SessionAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("session_token")
 		if err != nil {
@@ -994,14 +996,15 @@ func render2FAPage(w http.ResponseWriter, r *http.Request, errorMsg string) {
 func serveIndexPage(w http.ResponseWriter, r *http.Request) {
 	// Check for quick add feature: a GET request to the root with a query string.
 	if r.URL.RawQuery != "" {
+		// Get the subdomain config here to pass to the quickAddHandler and rate limit middleware.
+		subdomainCfg := getSubdomainConfig(r.Host)
+
 		// This is a Quick Add request. We must apply the anonymous rate limiter.
 		quickAddHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var formURL string
 			var keyLength int
 			var linkTimeout time.Duration
 			var err error
-
-			subdomainCfg := getSubdomainConfig(r.Host)
 
 			// Check for the new query param format vs the old raw query format.
 			queryParams, parseErr := url.ParseQuery(r.URL.RawQuery)
@@ -1094,7 +1097,7 @@ func serveIndexPage(w http.ResponseWriter, r *http.Request) {
 		})
 
 		// Apply the middleware to our handler.
-		anonymousRateLimitMiddleware(quickAddHandler).ServeHTTP(w, r)
+		anonymousRateLimitMiddleware(subdomainCfg.AnonymousRateLimit, quickAddHandler).ServeHTTP(w, r)
 		return
 	}
 

@@ -38,6 +38,15 @@ func loadConfig() (err error) {
 			return
 		}
 
+		// Ensure pointer fields in Defaults are initialized if they are nil after unmarshaling.
+		if config.Defaults.AnonymousRateLimit == nil {
+			config.Defaults.AnonymousRateLimit = &AnonymousRateLimitConfig{Enabled: false} // Default to disabled
+		}
+		if config.Defaults.FileUploadsEnabled == nil {
+			defaultFileUploadsEnabled := false
+			config.Defaults.FileUploadsEnabled = &defaultFileUploadsEnabled // Default to false
+		}
+
 		// Allow environment variables to override file settings.
 		overrideConfigWithEnv()
 

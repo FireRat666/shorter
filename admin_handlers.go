@@ -28,26 +28,26 @@ func handleAdminRoutes(mux *http.ServeMux) {
 
 	// Register the admin handlers, each wrapped in our new sessionAuth middleware.
 	// The paths are relative to the "/admin" prefix that will be stripped.
-	adminRouter.HandleFunc("/", sessionAuth(handleAdmin)) // Matches /admin
-	adminRouter.HandleFunc("/edit", sessionAuth(handleAdminEditPage))
-	adminRouter.HandleFunc("/edit_static_link", sessionAuth(handleAdminEditStaticLinkPage))
-	adminRouter.HandleFunc("/api-keys", sessionAuth(handleAdminAPIKeysPage))
-	adminRouter.HandleFunc("/edit-link", sessionAuth(handleAdminEditLinkPage))
-	adminRouter.HandleFunc("/abuse-reports", sessionAuth(handleAdminAbuseReportsPage))
-	adminRouter.HandleFunc("/security", sessionAuth(handleAdminSecurityPage))
-	adminRouter.HandleFunc("/stats", sessionAuth(handleAdminStatsPage))
-	adminRouter.HandleFunc("/logout", sessionAuth(handleAdminLogout)) // Logout must be protected
+	adminRouter.HandleFunc("/", SessionAuth(handleAdmin)) // Matches /admin
+	adminRouter.HandleFunc("/edit", SessionAuth(handleAdminEditPage))
+	adminRouter.HandleFunc("/edit_static_link", SessionAuth(handleAdminEditStaticLinkPage))
+	adminRouter.HandleFunc("/api-keys", SessionAuth(handleAdminAPIKeysPage))
+	adminRouter.HandleFunc("/edit-link", SessionAuth(handleAdminEditLinkPage))
+	adminRouter.HandleFunc("/abuse-reports", SessionAuth(handleAdminAbuseReportsPage))
+	adminRouter.HandleFunc("/security", SessionAuth(handleAdminSecurityPage))
+	adminRouter.HandleFunc("/stats", SessionAuth(handleAdminStatsPage))
+	adminRouter.HandleFunc("/logout", SessionAuth(handleAdminLogout)) // Logout must be protected
 
 	// Add the new handlers for the lazy-loaded statistic partials.
-	adminRouter.HandleFunc("/stats/overall", sessionAuth(adminStatsOverallHandler))
-	adminRouter.HandleFunc("/stats/top-links", sessionAuth(adminStatsTopLinksHandler))
-	adminRouter.HandleFunc("/stats/recent-activity", sessionAuth(adminStatsRecentActivityHandler))
-	adminRouter.HandleFunc("/stats/activity-chart-data", sessionAuth(adminStatsActivityChartDataHandler))
-	adminRouter.HandleFunc("/security/qr", sessionAuth(handleAdminSecurityQR))
-	adminRouter.HandleFunc("/stats/creator-stats", sessionAuth(adminStatsCreatorStatsHandler))
-	adminRouter.HandleFunc("/stats/domain-list", sessionAuth(adminStatsDomainListHandler))
-	adminRouter.HandleFunc("/stats/domain-details", sessionAuth(adminStatsDomainDetailsHandler))
-	adminRouter.HandleFunc("/stats/reset", sessionAuth(handleAdminResetStats))
+	adminRouter.HandleFunc("/stats/overall", SessionAuth(adminStatsOverallHandler))
+	adminRouter.HandleFunc("/stats/top-links", SessionAuth(adminStatsTopLinksHandler))
+	adminRouter.HandleFunc("/stats/recent-activity", SessionAuth(adminStatsRecentActivityHandler))
+	adminRouter.HandleFunc("/stats/activity-chart-data", SessionAuth(adminStatsActivityChartDataHandler))
+	adminRouter.HandleFunc("/security/qr", SessionAuth(handleAdminSecurityQR))
+	adminRouter.HandleFunc("/stats/creator-stats", SessionAuth(adminStatsCreatorStatsHandler))
+	adminRouter.HandleFunc("/stats/domain-list", SessionAuth(adminStatsDomainListHandler))
+	adminRouter.HandleFunc("/stats/domain-details", SessionAuth(adminStatsDomainDetailsHandler))
+	adminRouter.HandleFunc("/stats/reset", SessionAuth(handleAdminResetStats))
 
 	// Create a handler that first strips the "/admin" prefix, then passes to the adminRouter.
 	// This is the standard way to handle sub-routing.
@@ -712,6 +712,16 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 		templateDefaults.LinkLen3 = config.LinkLen3
 		templateDefaults.MaxKeyLen = config.MaxKeyLen
 		templateDefaults.MaxRequestSize = config.MaxRequestSize
+		templateDefaults.MaxTextSize = config.MaxTextSize
+		templateDefaults.MinSizeToGzip = config.MinSizeToGzip
+		// Initialize AnonymousRateLimit as a copy of the default, not a pointer to the global config.
+		if config.Defaults.AnonymousRateLimit != nil {
+			anonRateLimitCopy := *config.Defaults.AnonymousRateLimit
+			templateDefaults.AnonymousRateLimit = &anonRateLimitCopy
+		} else {
+			templateDefaults.AnonymousRateLimit = &AnonymousRateLimitConfig{Enabled: false, Every: "30s"} // Fallback default
+		}
+		templateDefaults.FileUploadsEnabled = config.Defaults.FileUploadsEnabled
 
 		editTmpl, ok := templateMap["admin_edit"]
 		if !ok {
@@ -1276,6 +1286,24 @@ func parseSubdomainForm(r *http.Request) (SubdomainConfig, error) {
 	if err != nil {
 		return SubdomainConfig{}, fmt.Errorf("invalid value for Max Request Size: %s", r.FormValue("MaxRequestSize"))
 	}
+
+	newConfig.MaxTextSize, err = parseInt(r.FormValue("MaxTextSize"))
+	if err != nil {
+		return SubdomainConfig{}, fmt.Errorf("invalid value for Max Text Size: %s", r.FormValue("MaxTextSize"))
+	}
+	newConfig.MinSizeToGzip, err = parseInt(r.FormValue("MinSizeToGzip"))
+	if err != nil {
+		return SubdomainConfig{}, fmt.Errorf("invalid value for Min Size to Gzip: %s", r.FormValue("MinSizeToGzip"))
+	}
+
+	// FileUploadsEnabled is a boolean checkbox.
+	fileUploadsEnabled := r.FormValue("FileUploadsEnabled") == "on"
+	newConfig.FileUploadsEnabled = &fileUploadsEnabled
+
+	// AnonymousRateLimit.Enabled is a boolean checkbox.
+	anonymousRateLimitEnabled := r.FormValue("AnonymousRateLimitEnabled") == "on"
+	anonymousRateLimitEvery := r.FormValue("AnonymousRateLimitEvery")
+	newConfig.AnonymousRateLimit = &AnonymousRateLimitConfig{Enabled: anonymousRateLimitEnabled, Every: anonymousRateLimitEvery}
 
 	// Timeouts and Display settings are strings, so we just assign them.
 	// The getSubdomainConfig function will then correctly merge these overrides

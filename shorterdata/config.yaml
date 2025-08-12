@@ -157,13 +157,13 @@ CleanupInterval: "24h"
 # subdomain configuration below.
 Defaults:
   LinkLen1Timeout: "1h"
-  LinkLen1Display: "1h"
+  LinkLen1Display: "1 Hour"
   LinkLen2Timeout: "4h"
-  LinkLen2Display: "4h"
+  LinkLen2Display: "4 Hours"
   LinkLen3Timeout: "12h"
-  LinkLen3Display: "12h"
+  LinkLen3Display: "12 Hours"
   CustomTimeout: "24h" # 1d
-  CustomDisplay: "1d"
+  CustomDisplay: "1 Day"
   LinkAccessMaxNr: 100
   StaticLinks:
     "docs": "https://51.firer.at/pages/firescreendocs"

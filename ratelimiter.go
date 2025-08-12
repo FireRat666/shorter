@@ -26,21 +26,38 @@ var (
 	tokenMu      sync.Mutex
 )
 
-// getClientByIP returns the rate limiter for a given IP address.
-func getClientByIP(ip string) *rate.Limiter {
+// getAnonymousClientByIP returns the rate limiter for a given IP address and anonymous rate limit configuration.
+func getAnonymousClientByIP(ip string, anonRateLimitCfg *AnonymousRateLimitConfig) *rate.Limiter {
 	ipMu.Lock()
 	defer ipMu.Unlock()
 
+	// Use a composite key for the map to differentiate between different rate limit configurations
+	// for the same IP, though for anonymous users, the config should be consistent per domain.
+	// For simplicity, we'll still use just the IP as the key, assuming the middleware
+	// ensures the correct config is passed.
 	if c, found := ipClients[ip]; found {
 		c.lastSeen = time.Now()
 		return c.limiter
 	}
 
-	// Create a new limiter based on the "Every" duration.
-	duration, err := time.ParseDuration(config.AnonymousRateLimit.Every)
+	// If anonRateLimitCfg is nil (e.g., if the config was not loaded or subdomain config is missing),
+	// use a default safe rate limit.
+	if anonRateLimitCfg == nil || !anonRateLimitCfg.Enabled {
+		// If rate limiting is disabled or config is missing, return a limiter that always allows.
+		// This effectively bypasses rate limiting for this IP.
+		limiter := rate.NewLimiter(rate.Inf, 0) // Infinite rate, 0 burst
+		ipClients[ip] = &client{
+			limiter:  limiter,
+			lastSeen: time.Now(),
+		}
+		return limiter
+	}
+
+	// Create a new limiter based on the "Every" duration from the provided config.
+	duration, err := time.ParseDuration(anonRateLimitCfg.Every)
 	if err != nil {
 		// Fallback to a safe default if config is invalid.
-		slogger.Error("Invalid AnonymousRateLimit.Every format, using 30s default", "duration", config.AnonymousRateLimit.Every, "error", err)
+		slogger.Error("Invalid AnonymousRateLimit.Every format, using 30s default", "duration", anonRateLimitCfg.Every, "error", err)
 		duration = 30 * time.Second
 	}
 	// The burst is 1, meaning they can make one request, then must wait for the 'Every' duration.
@@ -98,12 +115,13 @@ func cleanupClients() {
 }
 
 // anonymousRateLimitMiddleware is a middleware that enforces rate limiting for anonymous users.
-func anonymousRateLimitMiddleware(next http.Handler) http.Handler {
+func anonymousRateLimitMiddleware(anonRateLimitCfg *AnonymousRateLimitConfig, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !config.AnonymousRateLimit.Enabled {
-			next.ServeHTTP(w, r)
-			return
-		}
+		// The check for anonRateLimitCfg.Enabled is now handled within getAnonymousClientByIP,
+		// which correctly considers if rate limiting is enabled for the specific subdomain.
+		// The global config.AnonymousRateLimit.Enabled check is removed here to allow
+		// subdomain-specific rate limit configurations to take precedence.
+
 
 		ip, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
@@ -112,7 +130,7 @@ func anonymousRateLimitMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		limiter := getClientByIP(ip)
+		limiter := getAnonymousClientByIP(ip, anonRateLimitCfg)
 		if !limiter.Allow() {
 			// Rate limit exceeded. Check the user agent to provide the appropriate response.
 			userAgent := strings.ToLower(r.UserAgent())
@@ -131,3 +149,4 @@ func anonymousRateLimitMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+

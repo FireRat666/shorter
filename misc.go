@@ -66,6 +66,14 @@ func getSubdomainConfig(host string) SubdomainConfig {
 		LinkLen3:         config.LinkLen3,
 		MaxKeyLen:        config.MaxKeyLen,
 		MaxRequestSize:   config.MaxRequestSize,
+		MaxTextSize:      config.MaxTextSize,
+		MinSizeToGzip:    config.MinSizeToGzip,
+		FileUploadsEnabled: &config.FileUploadsEnabled,
+		// Initialize AnonymousRateLimit with a copy of the global config's values
+		AnonymousRateLimit: &AnonymousRateLimitConfig{
+			Enabled: config.AnonymousRateLimit.Enabled,
+			Every:   config.AnonymousRateLimit.Every,
+		},
 		LinkLen1Timeout:  config.Defaults.LinkLen1Timeout,
 		LinkLen1Display:  config.Defaults.LinkLen1Display,
 		LinkLen2Timeout:  config.Defaults.LinkLen2Timeout,
@@ -95,6 +103,31 @@ func getSubdomainConfig(host string) SubdomainConfig {
 		}
 		if subConfig.MaxRequestSize != 0 {
 			mergedConfig.MaxRequestSize = subConfig.MaxRequestSize
+		}
+		if subConfig.MaxTextSize != 0 {
+			mergedConfig.MaxTextSize = subConfig.MaxTextSize
+		}
+		if subConfig.MinSizeToGzip != 0 {
+			mergedConfig.MinSizeToGzip = subConfig.MinSizeToGzip
+		}
+		// For boolean pointers, check if the pointer itself is non-nil.
+		if subConfig.FileUploadsEnabled != nil {
+			mergedConfig.FileUploadsEnabled = subConfig.FileUploadsEnabled
+		}
+		// Handle AnonymousRateLimit merging
+		if subConfig.AnonymousRateLimit != nil {
+			// If 'Enabled' is explicitly set in subConfig, use it.
+			// Otherwise, keep the global 'Enabled' setting.
+			// This handles the case where 'Enabled' is omitted or explicitly false in subConfig.
+			if subConfig.AnonymousRateLimit.Enabled || (subConfig.AnonymousRateLimit.Every != "" && !subConfig.AnonymousRateLimit.Enabled) {
+				// If Enabled is true, or if Every is set and Enabled is explicitly false, use subConfig's Enabled.
+				mergedConfig.AnonymousRateLimit.Enabled = subConfig.AnonymousRateLimit.Enabled
+			}
+
+			// If 'Every' is explicitly set in subConfig, use it.
+			if subConfig.AnonymousRateLimit.Every != "" {
+				mergedConfig.AnonymousRateLimit.Every = subConfig.AnonymousRateLimit.Every
+			}
 		}
 		if subConfig.LinkLen1Timeout != "" {
 			mergedConfig.LinkLen1Timeout = subConfig.LinkLen1Timeout

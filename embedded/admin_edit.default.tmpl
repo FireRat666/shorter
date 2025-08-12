@@ -29,6 +29,21 @@
                 <label for="MaxRequestSize">Max Request Size (bytes):</label>
                 <input type="number" id="MaxRequestSize" name="MaxRequestSize" class="inputbox {{if ne .Config.MaxRequestSize .Defaults.MaxRequestSize}}is-overridden{{end}}" value="{{.Config.MaxRequestSize}}" placeholder="Default: {{.Defaults.MaxRequestSize}}">
 
+                <label for="MaxTextSize">Max Text Size (bytes):</label>
+                <input type="number" id="MaxTextSize" name="MaxTextSize" class="inputbox {{if ne .Config.MaxTextSize .Defaults.MaxTextSize}}is-overridden{{end}}" value="{{.Config.MaxTextSize}}" placeholder="Default: {{.Defaults.MaxTextSize}}">
+
+                <label for="MinSizeToGzip">Min Size to Gzip (bytes):</label>
+                <input type="number" id="MinSizeToGzip" name="MinSizeToGzip" class="inputbox {{if ne .Config.MinSizeToGzip .Defaults.MinSizeToGzip}}is-overridden{{end}}" value="{{.Config.MinSizeToGzip}}" placeholder="Default: {{.Defaults.MinSizeToGzip}}">
+
+                <label for="FileUploadsEnabled">File Uploads Enabled:</label>
+                <input type="checkbox" id="FileUploadsEnabled" name="FileUploadsEnabled" class="checkbox" {{if .Config.FileUploadsEnabled}}checked{{end}}>
+
+                <label for="AnonymousRateLimitEnabled">Anonymous Rate Limit Enabled:</label>
+                <input type="checkbox" id="AnonymousRateLimitEnabled" name="AnonymousRateLimitEnabled" class="checkbox" {{if .Config.AnonymousRateLimit.Enabled}}checked{{end}}>
+
+                <label for="AnonymousRateLimitEvery">Anonymous Rate Limit Every (e.g., "30s", "1m"):</label>
+                <input type="text" id="AnonymousRateLimitEvery" name="AnonymousRateLimitEvery" class="inputbox {{if ne .Config.AnonymousRateLimit.Every .Defaults.AnonymousRateLimit.Every}}is-overridden{{end}}" value="{{.Config.AnonymousRateLimit.Every}}" placeholder="Default: {{.Defaults.AnonymousRateLimit.Every}}">
+
                 <label for="link_len1_timeout">Timeout (Len 1):</label>
                 <input type="text" id="link_len1_timeout" name="LinkLen1Timeout" class="inputbox {{if ne .Config.LinkLen1Timeout .Defaults.LinkLen1Timeout}}is-overridden{{end}}" value="{{.Config.LinkLen1Timeout}}" placeholder="Default: {{.Defaults.LinkLen1Timeout}}">
                 <label for="link_len1_display">Display (Len 1):</label>
