@@ -24,7 +24,7 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
 
 * **Secure Admin Panel**: A modern, session-based admin interface for managing the entire service.
   * **Subdomain Management**: Create, delete, and configure settings for multiple domains from a single interface.
-  * **Per-Domain Configuration**: Override default settings for link timeouts, display values, and usage limits on a per-subdomain basis.
+  * **Per-Domain Configuration**: Override default settings for link timeouts, display values, usage limits, and anonymous user rate limits on a per-subdomain basis.
   * **"Remember Me"**: Stay logged into the admin panel for an extended period.
   * **Two-Factor Authentication (2FA)**: Secure the admin account with Time-based One-Time Passwords (TOTP) from an authenticator app.
   * **Link Management**: A paginated and searchable interface to view, edit, and perform bulk deletions of links for each domain.
