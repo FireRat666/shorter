@@ -14,6 +14,7 @@ import (
 type client struct {
 	limiter  *rate.Limiter
 	lastSeen time.Time
+	every    time.Duration // The "Every" duration used to create the limiter.
 }
 
 var (
@@ -31,41 +32,40 @@ func getAnonymousClientByIP(ip string, anonRateLimitCfg *AnonymousRateLimitConfi
 	ipMu.Lock()
 	defer ipMu.Unlock()
 
-	// Use a composite key for the map to differentiate between different rate limit configurations
-	// for the same IP, though for anonymous users, the config should be consistent per domain.
-	// For simplicity, we'll still use just the IP as the key, assuming the middleware
-	// ensures the correct config is passed.
+	// If anonRateLimitCfg is nil or disabled, we don't need to rate limit.
+	// We also remove any existing client for this IP to handle cases where
+	// rate limiting was disabled after being enabled.
+	if anonRateLimitCfg == nil || !anonRateLimitCfg.Enabled {
+		delete(ipClients, ip)
+		return rate.NewLimiter(rate.Inf, 0)
+	}
+
+	// Parse the duration from the config.
+	duration, err := time.ParseDuration(anonRateLimitCfg.Every)
+	if err != nil {
+		slogger.Error("Invalid AnonymousRateLimit.Every format, using 30s default", "duration", anonRateLimitCfg.Every, "error", err)
+		duration = 30 * time.Second
+	}
+
+	// Check if a client already exists for this IP.
 	if c, found := ipClients[ip]; found {
+		// If the configured duration has changed, create a new limiter.
+		if c.every != duration {
+			newLimiter := rate.NewLimiter(rate.Every(duration), 1)
+			c.limiter = newLimiter
+			c.every = duration
+			slogger.Info("Anonymous rate limit updated for IP", "ip", ip, "new_duration", duration)
+		}
 		c.lastSeen = time.Now()
 		return c.limiter
 	}
 
-	// If anonRateLimitCfg is nil (e.g., if the config was not loaded or subdomain config is missing),
-	// use a default safe rate limit.
-	if anonRateLimitCfg == nil || !anonRateLimitCfg.Enabled {
-		// If rate limiting is disabled or config is missing, return a limiter that always allows.
-		// This effectively bypasses rate limiting for this IP.
-		limiter := rate.NewLimiter(rate.Inf, 0) // Infinite rate, 0 burst
-		ipClients[ip] = &client{
-			limiter:  limiter,
-			lastSeen: time.Now(),
-		}
-		return limiter
-	}
-
-	// Create a new limiter based on the "Every" duration from the provided config.
-	duration, err := time.ParseDuration(anonRateLimitCfg.Every)
-	if err != nil {
-		// Fallback to a safe default if config is invalid.
-		slogger.Error("Invalid AnonymousRateLimit.Every format, using 30s default", "duration", anonRateLimitCfg.Every, "error", err)
-		duration = 30 * time.Second
-	}
-	// The burst is 1, meaning they can make one request, then must wait for the 'Every' duration.
+	// If no client was found, create a new one.
 	limiter := rate.NewLimiter(rate.Every(duration), 1)
-
 	ipClients[ip] = &client{
 		limiter:  limiter,
 		lastSeen: time.Now(),
+		every:    duration,
 	}
 	return limiter
 }
@@ -122,7 +122,6 @@ func anonymousRateLimitMiddleware(anonRateLimitCfg *AnonymousRateLimitConfig, ne
 		// The global config.AnonymousRateLimit.Enabled check is removed here to allow
 		// subdomain-specific rate limit configurations to take precedence.
 
-
 		ip, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
 			slogger.Error("Could not get IP for rate limiting", "error", err)
@@ -149,4 +148,3 @@ func anonymousRateLimitMiddleware(anonRateLimitCfg *AnonymousRateLimitConfig, ne
 		next.ServeHTTP(w, r)
 	})
 }
-
