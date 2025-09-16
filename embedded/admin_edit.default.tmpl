@@ -56,15 +56,15 @@
 
                     <fieldset>
                         <legend>Rate Limiting</legend>
-                        <h4>Anonymous Rate Limit</h4>
+                        <h4 class="form-grid-span-2">Anonymous Rate Limit</h4>
                         <label for="AnonymousRateLimitEnabled">Enabled:</label>
                         <input type="checkbox" id="AnonymousRateLimitEnabled" name="AnonymousRateLimitEnabled" class="checkbox" {{if .Config.AnonymousRateLimit.Enabled}}checked{{end}}>
 
                         <label for="AnonymousRateLimitEvery">Every (e.g., "30s", "1m"):</label>
                         <input type="text" id="AnonymousRateLimitEvery" name="AnonymousRateLimitEvery" class="inputbox {{if ne .Config.AnonymousRateLimit.Every .Defaults.AnonymousRateLimit.Every}}is-overridden{{end}}" value="{{.Config.AnonymousRateLimit.Every}}" placeholder="Default: {{.Defaults.AnonymousRateLimit.Every}}">
 
-                        <hr>
-                        <h4>Advanced Rate Limiter 1</h4>
+                        <hr class="form-grid-span-2">
+                        <h4 class="form-grid-span-2">Advanced Rate Limiter 1</h4>
                         <label for="RateLimit1Enabled">Enabled:</label>
                         <input type="checkbox" id="RateLimit1Enabled" name="RateLimit1Enabled" class="checkbox" {{if .Config.RateLimit1.Enabled}}checked{{end}}>
 
@@ -74,8 +74,8 @@
                         <label for="RateLimit1Y">In Time (Y):</label>
                         <input type="text" id="RateLimit1Y" name="RateLimit1Y" class="inputbox" value="{{.Config.RateLimit1.Y}}" placeholder="e.g., 5m, 1h, 24h">
 
-                        <hr>
-                        <h4>Advanced Rate Limiter 2</h4>
+                        <hr class="form-grid-span-2">
+                        <h4 class="form-grid-span-2">Advanced Rate Limiter 2</h4>
                         <label for="RateLimit2Enabled">Enabled:</label>
                         <input type="checkbox" id="RateLimit2Enabled" name="RateLimit2Enabled" class="checkbox" {{if .Config.RateLimit2.Enabled}}checked{{end}}>
 

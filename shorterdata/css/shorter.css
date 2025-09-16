@@ -25,7 +25,7 @@ body {
 
 .content {
     display: grid;
-    grid-template-columns: auto;
+    grid-template-columns: 1fr;
     justify-content: center;
     gap: 1em;
     max-width: 96vw;
@@ -498,7 +498,7 @@ select.is-overridden {
 
 .form-container {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
     gap: 1em;
 }
 
@@ -507,4 +507,8 @@ select.is-overridden {
     grid-template-columns: auto 1fr;
     gap: 1em;
     align-items: center;
+}
+
+.form-grid-span-2 {
+    grid-column: span 2;
 }
