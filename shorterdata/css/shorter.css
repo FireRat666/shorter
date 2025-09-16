@@ -269,14 +269,12 @@ th {
 /* Admin Panel Form Styling */
 .admin-form {
     display: grid;
-    grid-template-columns: 150px 1fr;
     gap: 1em;
     align-items: center;
     margin-top: 1em;
 }
 
 .admin-form input[type="submit"] {
-    grid-column: span 2;
 }
 
 /* Make the delete button rule more specific to override the default submit style */
@@ -496,4 +494,16 @@ select.is-overridden {
     height: 40vh;
     width: 80vw;
     margin-bottom: 2em;
+}
+
+.form-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1em;
+}
+
+.form-container fieldset {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5em;
 }
