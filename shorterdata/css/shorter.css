@@ -503,7 +503,8 @@ select.is-overridden {
 }
 
 .form-container fieldset {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5em;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 1em;
+    align-items: center;
 }
