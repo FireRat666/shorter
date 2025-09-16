@@ -74,6 +74,8 @@ func getSubdomainConfig(host string) SubdomainConfig {
 			Enabled: config.AnonymousRateLimit.Enabled,
 			Every:   config.AnonymousRateLimit.Every,
 		},
+		RateLimit1: &RateLimitXYConfig{},
+		RateLimit2: &RateLimitXYConfig{},
 		LinkLen1Timeout:  config.Defaults.LinkLen1Timeout,
 		LinkLen1Display:  config.Defaults.LinkLen1Display,
 		LinkLen2Timeout:  config.Defaults.LinkLen2Timeout,
@@ -128,6 +130,12 @@ func getSubdomainConfig(host string) SubdomainConfig {
 			if subConfig.AnonymousRateLimit.Every != "" {
 				mergedConfig.AnonymousRateLimit.Every = subConfig.AnonymousRateLimit.Every
 			}
+		}
+		if subConfig.RateLimit1 != nil {
+			mergedConfig.RateLimit1 = subConfig.RateLimit1
+		}
+		if subConfig.RateLimit2 != nil {
+			mergedConfig.RateLimit2 = subConfig.RateLimit2
 		}
 		if subConfig.LinkLen1Timeout != "" {
 			mergedConfig.LinkLen1Timeout = subConfig.LinkLen1Timeout

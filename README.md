@@ -25,6 +25,7 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
 * **Secure Admin Panel**: A modern, session-based admin interface for managing the entire service.
   * **Subdomain Management**: Create, delete, and configure settings for multiple domains from a single interface.
   * **Per-Domain Configuration**: Override default settings for link timeouts, display values, usage limits, and anonymous user rate limits on a per-subdomain basis.
+  * **Advanced Rate Limiting**: In addition to the standard anonymous rate limiter, you can configure two more advanced "X actions in Y time" limiters per domain. For example, you can limit users to 10 actions every 5 minutes, and 100 actions every 24 hours. These new limiters work in conjunction with the standard rate limiter, and the most restrictive limit will always be applied. This is configured in the admin panel for each domain.
   * **"Remember Me"**: Stay logged into the admin panel for an extended period.
   * **Two-Factor Authentication (2FA)**: Secure the admin account with Time-based One-Time Passwords (TOTP) from an authenticator app.
   * **Link Management**: A paginated and searchable interface to view, edit, and perform bulk deletions of links for each domain.

@@ -88,6 +88,13 @@ type APIRateLimitConfig struct {
 	Burst   int     `yaml:"Burst"` // Maximum burst size
 }
 
+// RateLimitXYConfig holds settings for X actions in Y time rate limiting.
+type RateLimitXYConfig struct {
+	Enabled bool   `yaml:"Enabled"`
+	X       int    `yaml:"X"` // How many actions
+	Y       string `yaml:"Y"` // In what time frame
+}
+
 // SubdomainConfig holds settings that can be applied globally or per-subdomain.
 type SubdomainConfig struct {
 	LinkLen1           int                        `yaml:"LinkLen1,omitempty"`
@@ -99,6 +106,8 @@ type SubdomainConfig struct {
 	MinSizeToGzip      int                        `yaml:"MinSizeToGzip,omitempty"`
 	FileUploadsEnabled *bool                      `yaml:"FileUploadsEnabled,omitempty"`
 	AnonymousRateLimit *AnonymousRateLimitConfig  `yaml:"AnonymousRateLimit,omitempty"`
+	RateLimit1         *RateLimitXYConfig         `yaml:"RateLimit1,omitempty"`
+	RateLimit2         *RateLimitXYConfig         `yaml:"RateLimit2,omitempty"`
 	LinkLen1Timeout    string                    `yaml:"LinkLen1Timeout,omitempty"`
 	LinkLen1Display    string                    `yaml:"LinkLen1Display,omitempty"`
 	LinkLen2Timeout    string                    `yaml:"LinkLen2Timeout,omitempty"`

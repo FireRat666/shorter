@@ -54,7 +54,7 @@ func handleRoot(mux *http.ServeMux) {
 				// Chain the middlewares: rate limit -> csrf -> handler
 				// Get the subdomain config here to pass to the rate limit middleware.
 				subdomainCfg := getSubdomainConfig(r.Host)
-				finalHandler := anonymousRateLimitMiddleware(subdomainCfg.AnonymousRateLimit, csrfProtect(handlePOST))
+				finalHandler := anonymousRateLimitMiddleware(subdomainCfg.AnonymousRateLimit, subdomainCfg.RateLimit1, subdomainCfg.RateLimit2, csrfProtect(handlePOST))
 				finalHandler.ServeHTTP(w, r)
 			} else {
 				// Otherwise, it's likely a password submission for an existing link.
@@ -1097,7 +1097,7 @@ func serveIndexPage(w http.ResponseWriter, r *http.Request) {
 		})
 
 		// Apply the middleware to our handler.
-		anonymousRateLimitMiddleware(subdomainCfg.AnonymousRateLimit, quickAddHandler).ServeHTTP(w, r)
+		anonymousRateLimitMiddleware(subdomainCfg.AnonymousRateLimit, subdomainCfg.RateLimit1, subdomainCfg.RateLimit2, quickAddHandler).ServeHTTP(w, r)
 		return
 	}
 

@@ -44,6 +44,29 @@
                 <label for="AnonymousRateLimitEvery">Anonymous Rate Limit Every (e.g., "30s", "1m"):</label>
                 <input type="text" id="AnonymousRateLimitEvery" name="AnonymousRateLimitEvery" class="inputbox {{if ne .Config.AnonymousRateLimit.Every .Defaults.AnonymousRateLimit.Every}}is-overridden{{end}}" value="{{.Config.AnonymousRateLimit.Every}}" placeholder="Default: {{.Defaults.AnonymousRateLimit.Every}}">
 
+                <hr>
+                <h3>Advanced Rate Limiter 1</h3>
+                <label for="RateLimit1Enabled">Enabled:</label>
+                <input type="checkbox" id="RateLimit1Enabled" name="RateLimit1Enabled" class="checkbox" {{if .Config.RateLimit1.Enabled}}checked{{end}}>
+
+                <label for="RateLimit1X">Actions (X):</label>
+                <input type="number" id="RateLimit1X" name="RateLimit1X" class="inputbox" value="{{.Config.RateLimit1.X}}" placeholder="e.g., 10">
+
+                <label for="RateLimit1Y">In Time (Y):</label>
+                <input type="text" id="RateLimit1Y" name="RateLimit1Y" class="inputbox" value="{{.Config.RateLimit1.Y}}" placeholder="e.g., 5m, 1h, 24h">
+
+                <hr>
+                <h3>Advanced Rate Limiter 2</h3>
+                <label for="RateLimit2Enabled">Enabled:</label>
+                <input type="checkbox" id="RateLimit2Enabled" name="RateLimit2Enabled" class="checkbox" {{if .Config.RateLimit2.Enabled}}checked{{end}}>
+
+                <label for="RateLimit2X">Actions (X):</label>
+                <input type="number" id="RateLimit2X" name="RateLimit2X" class="inputbox" value="{{.Config.RateLimit2.X}}" placeholder="e.g., 50">
+
+                <label for="RateLimit2Y">In Time (Y):</label>
+                <input type="text" id="RateLimit2Y" name="RateLimit2Y" class="inputbox" value="{{.Config.RateLimit2.Y}}" placeholder="e.g., 24h">
+                <hr>
+
                 <label for="link_len1_timeout">Timeout (Len 1):</label>
                 <input type="text" id="link_len1_timeout" name="LinkLen1Timeout" class="inputbox {{if ne .Config.LinkLen1Timeout .Defaults.LinkLen1Timeout}}is-overridden{{end}}" value="{{.Config.LinkLen1Timeout}}" placeholder="Default: {{.Defaults.LinkLen1Timeout}}">
                 <label for="link_len1_display">Display (Len 1):</label>

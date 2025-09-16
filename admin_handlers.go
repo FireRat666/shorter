@@ -1305,6 +1305,24 @@ func parseSubdomainForm(r *http.Request) (SubdomainConfig, error) {
 	anonymousRateLimitEvery := r.FormValue("AnonymousRateLimitEvery")
 	newConfig.AnonymousRateLimit = &AnonymousRateLimitConfig{Enabled: anonymousRateLimitEnabled, Every: anonymousRateLimitEvery}
 
+	// RateLimit1
+	rateLimit1Enabled := r.FormValue("RateLimit1Enabled") == "on"
+	rateLimit1X, err := parseInt(r.FormValue("RateLimit1X"))
+	if err != nil {
+		return SubdomainConfig{}, fmt.Errorf("invalid value for Rate Limit 1 X: %s", r.FormValue("RateLimit1X"))
+	}
+	rateLimit1Y := r.FormValue("RateLimit1Y")
+	newConfig.RateLimit1 = &RateLimitXYConfig{Enabled: rateLimit1Enabled, X: rateLimit1X, Y: rateLimit1Y}
+
+	// RateLimit2
+	rateLimit2Enabled := r.FormValue("RateLimit2Enabled") == "on"
+	rateLimit2X, err := parseInt(r.FormValue("RateLimit2X"))
+	if err != nil {
+		return SubdomainConfig{}, fmt.Errorf("invalid value for Rate Limit 2 X: %s", r.FormValue("RateLimit2X"))
+	}
+	rateLimit2Y := r.FormValue("RateLimit2Y")
+	newConfig.RateLimit2 = &RateLimitXYConfig{Enabled: rateLimit2Enabled, X: rateLimit2X, Y: rateLimit2Y}
+
 	// Timeouts and Display settings are strings, so we just assign them.
 	// The getSubdomainConfig function will then correctly merge these overrides
 	// with the global defaults.
