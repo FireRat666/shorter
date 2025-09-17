@@ -274,9 +274,6 @@ th {
     margin-top: 1em;
 }
 
-.admin-form input[type="submit"] {
-}
-
 /* Make the delete button rule more specific to override the default submit style */
 input[type=submit].delete-button {
     background-color: #c00000; /* Red color for destructive action */
@@ -498,7 +495,7 @@ select.is-overridden {
 
 .form-container {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
     gap: 1em;
 }
 

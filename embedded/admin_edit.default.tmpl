@@ -49,12 +49,6 @@
                     </fieldset>
 
                     <fieldset>
-                        <legend>Features</legend>
-                        <label for="FileUploadsEnabled">File Uploads Enabled:</label>
-                        <input type="checkbox" id="FileUploadsEnabled" name="FileUploadsEnabled" class="checkbox" {{if .Config.FileUploadsEnabled}}checked{{end}}>
-                    </fieldset>
-
-                    <fieldset>
                         <legend>Rate Limiting</legend>
                         <h4 class="form-grid-span-2">Anonymous Rate Limit</h4>
                         <label for="AnonymousRateLimitEnabled">Enabled:</label>
@@ -111,6 +105,12 @@
 
                         <label for="custom_display">Display (Custom):</label>
                         <input type="text" id="custom_display" name="CustomDisplay" class="inputbox {{if ne .Config.CustomDisplay .Defaults.CustomDisplay}}is-overridden{{end}}" value="{{.Config.CustomDisplay}}" placeholder="Default: {{.Defaults.CustomDisplay}}">
+                    </fieldset>
+
+                    <fieldset>
+                        <legend>Features</legend>
+                        <label for="FileUploadsEnabled">File Uploads Enabled:</label>
+                        <input type="checkbox" id="FileUploadsEnabled" name="FileUploadsEnabled" class="checkbox" {{if .Config.FileUploadsEnabled}}checked{{end}}>
                     </fieldset>
                 </div>
 
