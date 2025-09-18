@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD033 -->
 # Public API
 
 The service provides a simple RESTful API for programmatic link management.
@@ -139,7 +140,7 @@ curl -X GET "https://shorter.example.com/api/v1/links?key=my-api-link&domain=sho
 
 </details>
 
-#### Example Success Response (`200 OK`)
+#### An Example Success Response (`200 OK`)
 
 ```json
 {
