@@ -539,7 +539,6 @@ func handleAPIGetLink(w http.ResponseWriter, r *http.Request) {
 		LinkType:     link.LinkType,
 		Data:         data,
 		HasPassword:  link.PasswordHash.Valid,
-		CreatedBy:    link.CreatedBy.String,
 		TimesAllowed: link.TimesAllowed,
 		TimesUsed:    link.TimesUsed,
 		ExpiresAt:    link.ExpiresAt,

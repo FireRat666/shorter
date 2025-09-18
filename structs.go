@@ -97,17 +97,17 @@ type RateLimitXYConfig struct {
 
 // SubdomainConfig holds settings that can be applied globally or per-subdomain.
 type SubdomainConfig struct {
-	LinkLen1           int                        `yaml:"LinkLen1,omitempty"`
-	LinkLen2           int                        `yaml:"LinkLen2,omitempty"`
-	LinkLen3           int                        `yaml:"LinkLen3,omitempty"`
-	MaxKeyLen          int                        `yaml:"MaxKeyLen,omitempty"`
-	MaxRequestSize     int64                      `yaml:"MaxRequestSize,omitempty"`
-	MaxTextSize        int                        `yaml:"MaxTextSize,omitempty"`
-	MinSizeToGzip      int                        `yaml:"MinSizeToGzip,omitempty"`
-	FileUploadsEnabled *bool                      `yaml:"FileUploadsEnabled,omitempty"`
-	AnonymousRateLimit *AnonymousRateLimitConfig  `yaml:"AnonymousRateLimit,omitempty"`
-	RateLimit1         *RateLimitXYConfig         `yaml:"RateLimit1,omitempty"`
-	RateLimit2         *RateLimitXYConfig         `yaml:"RateLimit2,omitempty"`
+	LinkLen1           int                       `yaml:"LinkLen1,omitempty"`
+	LinkLen2           int                       `yaml:"LinkLen2,omitempty"`
+	LinkLen3           int                       `yaml:"LinkLen3,omitempty"`
+	MaxKeyLen          int                       `yaml:"MaxKeyLen,omitempty"`
+	MaxRequestSize     int64                     `yaml:"MaxRequestSize,omitempty"`
+	MaxTextSize        int                       `yaml:"MaxTextSize,omitempty"`
+	MinSizeToGzip      int                       `yaml:"MinSizeToGzip,omitempty"`
+	FileUploadsEnabled *bool                     `yaml:"FileUploadsEnabled,omitempty"`
+	AnonymousRateLimit *AnonymousRateLimitConfig `yaml:"AnonymousRateLimit,omitempty"`
+	RateLimit1         *RateLimitXYConfig        `yaml:"RateLimit1,omitempty"`
+	RateLimit2         *RateLimitXYConfig        `yaml:"RateLimit2,omitempty"`
 	LinkLen1Timeout    string                    `yaml:"LinkLen1Timeout,omitempty"`
 	LinkLen1Display    string                    `yaml:"LinkLen1Display,omitempty"`
 	LinkLen2Timeout    string                    `yaml:"LinkLen2Timeout,omitempty"`
@@ -408,8 +408,6 @@ type apiDeleteLinkRequest struct {
 	Key    string `json:"key"`
 	Domain string `json:"domain,omitempty"` // Optional. If not provided, use PrimaryDomain.
 }
-
-
 
 // apiGetLinkResponse defines the structure for a successful JSON response when getting a link's details.
 type apiGetLinkResponse struct {
