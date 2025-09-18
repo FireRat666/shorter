@@ -28,7 +28,10 @@ All API requests must include an `Authorization` header with your key:
 | `max_uses` | int | No | The maximum number of times the link can be used. Defaults to unlimited (0). |
 | `password` | string | No | An optional password to protect the link. |
 
-#### Example Create Request (`curl`)
+#### Example Create Request
+
+<details>
+<summary>Linux/macOS (`curl`)</summary>
 
 ```bash
 curl -X POST "https://shorter.example.com/api/v1/links" \
@@ -41,6 +44,42 @@ curl -X POST "https://shorter.example.com/api/v1/links" \
   "custom_key": "my-api-link"
 }'
 ```
+
+</details>
+
+<details>
+<summary>Windows (`PowerShell`)</summary>
+
+```powershell
+$body = @{
+    url        = "https://www.google.com"
+    domain     = "shorter.example.com"
+    expires_in = "5m"
+    custom_key = "my-api-link"
+} | ConvertTo-Json -Compress
+
+Invoke-RestMethod -Method Post `
+    -Uri "https://shorter.example.com/api/v1/links" `
+    -Headers @{
+        Authorization = "Bearer YOUR_API_KEY_HERE"
+        "Content-Type" = "application/json"
+    } `
+    -Body $body
+```
+
+</details>
+
+<details>
+<summary>Windows (`CMD`)</summary>
+
+```cmd
+curl -X POST "https://shorter.example.com/api/v1/links" ^
+-H "Authorization: Bearer YOUR_API_KEY_HERE" ^
+-H "Content-Type: application/json" ^
+-d "{ \"url\": \"https://www.google.com\", \"domain\": \"shorter.example.com\", \"expires_in\": \"5m\", \"custom_key\": \"my-api-link\" }"
+```
+
+</details>
 
 #### Example Success Response (`201 Created`)
 
@@ -56,26 +95,49 @@ curl -X POST "https://shorter.example.com/api/v1/links" \
 * **URL**: `/api/v1/links`
 * **Method**: `GET`
 * **Headers**:
-  * `Content-Type: application/json`
   * `Authorization: Bearer YOUR_API_KEY_HERE`
-* **Body (JSON)**:
+* **URL Parameters**:
 
-| Field | Type | Required | Description |
+| Parameter | Type | Required | Description |
 |---|---|---|---|
 | `key` | string | Yes | The key of the link to retrieve. |
 | `domain` | string | No | The domain of the link. Defaults to the primary domain. |
 
-#### Example Get Request (`curl`)
+#### Example Get Request
+
+<details>
+<summary>Linux/macOS (`curl`)</summary>
 
 ```bash
-curl -X GET "https://shorter.example.com/api/v1/links" \
--H "Authorization: Bearer YOUR_API_KEY_HERE" \
--H "Content-Type: application/json" \
--d '{
-  "key": "my-api-link",
-  "domain": "shorter.example.com"
-}'
+curl -X GET "https://shorter.example.com/api/v1/links?key=my-api-link&domain=shorter.example.com" \
+-H "Authorization: Bearer YOUR_API_KEY_HERE"
 ```
+
+</details>
+
+<details>
+<summary>Windows (`PowerShell`)</summary>
+
+```powershell
+$uri = "https://shorter.example.com/api/v1/links?key=my-api-link&domain=shorter.example.com"
+Invoke-RestMethod -Method Get `
+    -Uri $uri `
+    -Headers @{
+        Authorization = "Bearer YOUR_API_KEY_HERE"
+}
+```
+
+</details>
+
+<details>
+<summary>Windows (`CMD`)</summary>
+
+```cmd
+curl -X GET "https://shorter.example.com/api/v1/links?key=my-api-link&domain=shorter.example.com" ^
+-H "Authorization: Bearer YOUR_API_KEY_HERE"
+```
+
+</details>
 
 #### Example Success Response (`200 OK`)
 
@@ -111,7 +173,10 @@ curl -X GET "https://shorter.example.com/api/v1/links" \
 | `max_uses` | int | No | A new maximum number of uses. `0` for unlimited. |
 | `password` | string | No | A new password to protect the link. |
 
-#### Example Update Request (`curl`)
+#### Example Update Request
+
+<details>
+<summary>Linux/macOS (`curl`)</summary>
 
 ```bash
 curl -X PATCH "https://shorter.example.com/api/v1/links" \
@@ -124,7 +189,42 @@ curl -X PATCH "https://shorter.example.com/api/v1/links" \
 }'
 ```
 
-#### The Example Success Response (`200 OK`)
+</details>
+
+<details>
+<summary>Windows (`PowerShell`)</summary>
+
+```powershell
+$body = @{
+    key        = "my-api-link"
+    domain     = "shorter.example.com"
+    expires_in = "48h"
+} | ConvertTo-Json -Compress
+
+Invoke-RestMethod -Method Patch `
+    -Uri "https://shorter.example.com/api/v1/links" `
+    -Headers @{
+        Authorization = "Bearer YOUR_API_KEY_HERE"
+        "Content-Type" = "application/json"
+    } `
+    -Body $body
+```
+
+</details>
+
+<details>
+<summary>Windows (`CMD`)</summary>
+
+```cmd
+curl -X PATCH "https://shorter.example.com/api/v1/links" ^
+-H "Authorization: Bearer YOUR_API_KEY_HERE" ^
+-H "Content-Type: application/json" ^
+-d "{ \"key\": \"my-api-link\", \"domain\": \"shorter.example.com\", \"expires_in\": \"48h\" }"
+```
+
+</details>
+
+#### Example Success Response (`200 OK`)
 
 ```json
 {
@@ -147,7 +247,10 @@ curl -X PATCH "https://shorter.example.com/api/v1/links" \
 | `key` | string | Yes | The key of the link to delete. |
 | `domain` | string | No | The domain of the link to delete. Defaults to the service's primary domain. |
 
-#### Example Delete Request (`curl`)
+#### Example Delete Request
+
+<details>
+<summary>Linux/macOS (`curl`)</summary>
 
 ```bash
 curl -X DELETE "https://shorter.example.com/api/v1/links" \
@@ -158,6 +261,40 @@ curl -X DELETE "https://shorter.example.com/api/v1/links" \
   "domain": "shorter.example.com"
 }'
 ```
+
+</details>
+
+<details>
+<summary>Windows (`PowerShell`)</summary>
+
+```powershell
+$body = @{
+    key    = "my-api-link"
+    domain = "shorter.example.com"
+} | ConvertTo-Json -Compress
+
+Invoke-RestMethod -Method Delete `
+    -Uri "https://shorter.example.com/api/v1/links" `
+    -Headers @{
+        Authorization = "Bearer YOUR_API_KEY_HERE"
+        "Content-Type" = "application/json"
+    } `
+    -Body $body
+```
+
+</details>
+
+<details>
+<summary>Windows (`CMD`)</summary>
+
+```cmd
+curl -X DELETE "https://shorter.example.com/api/v1/links" ^
+-H "Authorization: Bearer YOUR_API_KEY_HERE" ^
+-H "Content-Type: application/json" ^
+-d "{ \"key\": \"my-api-link\", \"domain\": \"shorter.example.com\" }"
+```
+
+</details>
 
 #### Example Success Response (`204 No Content`)
 

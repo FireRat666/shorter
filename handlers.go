@@ -481,18 +481,15 @@ func apiAuth(next http.HandlerFunc) http.HandlerFunc {
 
 // handleAPIGetLink handles requests to retrieve a link's details via the API.
 func handleAPIGetLink(w http.ResponseWriter, r *http.Request) {
-	var req apiGetLinkRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid JSON request body")
+	// Read parameters from the URL query string instead of a JSON body.
+	key := r.URL.Query().Get("key")
+	domain := r.URL.Query().Get("domain")
+
+	if key == "" {
+		respondWithError(w, http.StatusBadRequest, "The 'key' query parameter is required")
 		return
 	}
 
-	if req.Key == "" {
-		respondWithError(w, http.StatusBadRequest, "The 'key' field is required")
-		return
-	}
-
-	domain := req.Domain
 	if domain == "" {
 		domain = config.PrimaryDomain
 	}
@@ -506,7 +503,7 @@ func handleAPIGetLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the full details of the link.
-	link, err := getLinkDetails(r.Context(), req.Key, domain)
+	link, err := getLinkDetails(r.Context(), key, domain)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve link.")
 		return

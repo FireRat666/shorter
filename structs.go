@@ -409,11 +409,7 @@ type apiDeleteLinkRequest struct {
 	Domain string `json:"domain,omitempty"` // Optional. If not provided, use PrimaryDomain.
 }
 
-// apiGetLinkRequest defines the structure for a JSON request to get a link's details via the API.
-type apiGetLinkRequest struct {
-	Key    string `json:"key"`
-	Domain string `json:"domain,omitempty"` // Optional. If not provided, use PrimaryDomain.
-}
+
 
 // apiGetLinkResponse defines the structure for a successful JSON response when getting a link's details.
 type apiGetLinkResponse struct {
