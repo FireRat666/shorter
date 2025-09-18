@@ -409,6 +409,26 @@ type apiDeleteLinkRequest struct {
 	Domain string `json:"domain,omitempty"` // Optional. If not provided, use PrimaryDomain.
 }
 
+// apiGetLinkRequest defines the structure for a JSON request to get a link's details via the API.
+type apiGetLinkRequest struct {
+	Key    string `json:"key"`
+	Domain string `json:"domain,omitempty"` // Optional. If not provided, use PrimaryDomain.
+}
+
+// apiGetLinkResponse defines the structure for a successful JSON response when getting a link's details.
+type apiGetLinkResponse struct {
+	Key          string    `json:"key"`
+	Domain       string    `json:"domain"`
+	LinkType     string    `json:"link_type"`
+	Data         string    `json:"data"` // For "url" and "text" types. Filename for "file" type.
+	HasPassword  bool      `json:"has_password"`
+	CreatedBy    string    `json:"created_by"`
+	TimesAllowed int       `json:"times_allowed"`
+	TimesUsed    int       `json:"times_used"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 // CSPReport represents the structure of a CSP violation report sent by the browser.
 type CSPReport struct {
 	CSPReport struct {

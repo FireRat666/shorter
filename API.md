@@ -51,6 +51,49 @@ curl -X POST "https://shorter.example.com/api/v1/links" \
 }
 ```
 
+### Endpoint: Get Link Details
+
+* **URL**: `/api/v1/links`
+* **Method**: `GET`
+* **Headers**:
+  * `Content-Type: application/json`
+  * `Authorization: Bearer YOUR_API_KEY_HERE`
+* **Body (JSON)**:
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `key` | string | Yes | The key of the link to retrieve. |
+| `domain` | string | No | The domain of the link. Defaults to the primary domain. |
+
+#### Example Get Request (`curl`)
+
+```bash
+curl -X GET "https://shorter.example.com/api/v1/links" \
+-H "Authorization: Bearer YOUR_API_KEY_HERE" \
+-H "Content-Type: application/json" \
+-d '{
+  "key": "my-api-link",
+  "domain": "shorter.example.com"
+}'
+```
+
+#### Example Success Response (`200 OK`)
+
+```json
+{
+  "key": "my-api-link",
+  "domain": "shorter.example.com",
+  "link_type": "url",
+  "data": "https://www.google.com",
+  "has_password": false,
+  "created_by": "admin",
+  "times_allowed": 0,
+  "times_used": 0,
+  "expires_at": "2025-07-31T14:05:00Z",
+  "created_at": "2025-07-31T14:00:00Z"
+}
+```
+
 ### Endpoint: Update Link
 
 * **URL**: `/api/v1/links`
@@ -81,7 +124,7 @@ curl -X PATCH "https://shorter.example.com/api/v1/links" \
 }'
 ```
 
-#### Example Success Response (`200 OK`)
+#### The Example Success Response (`200 OK`)
 
 ```json
 {

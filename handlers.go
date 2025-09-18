@@ -402,6 +402,8 @@ func handleAPIRoutes(mux *http.ServeMux) {
 // endpoint to the correct handler based on the HTTP method.
 func handleAPILinks(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
+	case http.MethodGet:
+		handleAPIGetLink(w, r)
 	case http.MethodPost:
 		handleAPICreateLink(w, r)
 	case http.MethodDelete:
@@ -475,6 +477,79 @@ func apiAuth(next http.HandlerFunc) http.HandlerFunc {
 		ctx := context.WithValue(r.Context(), userContextKey, apiKey.Token)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	}
+}
+
+// handleAPIGetLink handles requests to retrieve a link's details via the API.
+func handleAPIGetLink(w http.ResponseWriter, r *http.Request) {
+	var req apiGetLinkRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid JSON request body")
+		return
+	}
+
+	if req.Key == "" {
+		respondWithError(w, http.StatusBadRequest, "The 'key' field is required")
+		return
+	}
+
+	domain := req.Domain
+	if domain == "" {
+		domain = config.PrimaryDomain
+	}
+
+	// Get the API key token from the context to verify ownership.
+	apiKeyToken, ok := r.Context().Value(userContextKey).(string)
+	if !ok {
+		// This should not happen if apiAuth middleware is working correctly.
+		respondWithError(w, http.StatusInternalServerError, "Could not identify API key from request context.")
+		return
+	}
+
+	// Get the full details of the link.
+	link, err := getLinkDetails(r.Context(), req.Key, domain)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to retrieve link.")
+		return
+	}
+	if link == nil {
+		respondWithError(w, http.StatusNotFound, "Link not found.")
+		return
+	}
+
+	// Ownership check: The API key in the request must match the creator of the link.
+	if !link.CreatedBy.Valid || link.CreatedBy.String != apiKeyToken {
+		respondWithError(w, http.StatusForbidden, "This API key does not have permission to view this link.")
+		return
+	}
+
+	// For "text" links, decompress data if necessary.
+	var data string
+	if link.LinkType == "text" && link.IsCompressed {
+		decompressed, err := decompress(link.Data)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to decompress link data.")
+			return
+		}
+		data = decompressed
+	} else {
+		data = string(link.Data)
+	}
+
+	// Respond with the link details.
+	response := apiGetLinkResponse{
+		Key:          link.Key,
+		Domain:       link.Domain,
+		LinkType:     link.LinkType,
+		Data:         data,
+		HasPassword:  link.PasswordHash.Valid,
+		CreatedBy:    link.CreatedBy.String,
+		TimesAllowed: link.TimesAllowed,
+		TimesUsed:    link.TimesUsed,
+		ExpiresAt:    link.ExpiresAt,
+		CreatedAt:    link.CreatedAt,
+	}
+
+	respondWithJSON(w, http.StatusOK, response)
 }
 
 // handleAPICreateLink handles requests to create a new link via the API.
