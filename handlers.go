@@ -110,8 +110,16 @@ func handlePOST(w http.ResponseWriter, r *http.Request) {
 	customKey := ""
 	if length == "custom" {
 		customKey = r.Form.Get("custom")
-		if !validate(customKey) || len(customKey) < 4 || len(customKey) > subdomainCfg.MaxKeyLen {
+		if !validate(customKey) {
 			logErrors(w, r, errInvalidCustomKey, http.StatusBadRequest, "Invalid custom key.")
+			return
+		}
+		if len(customKey) < 4 {
+			logErrors(w, r, "Custom key is too short, minimum length is 4 characters.", http.StatusBadRequest, "Invalid custom key.")
+			return
+		}
+		if len(customKey) > subdomainCfg.MaxKeyLen {
+			logErrors(w, r, "Custom key is too long, maximum length is "+strconv.Itoa(subdomainCfg.MaxKeyLen)+" characters.", http.StatusBadRequest, "Invalid custom key.")
 			return
 		}
 
