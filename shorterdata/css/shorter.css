@@ -16,7 +16,7 @@ body {
     gap: 1em;
     justify-content: center;
     align-items: center;
-    padding: 2em;
+    padding: 1.5em;
 }
 
 .header img {
@@ -26,10 +26,10 @@ body {
 .content {
     display: grid;
     grid-template-columns: 1fr;
-    justify-content: center;
+    justify-items: center;
     gap: 1em;
     max-width: 96vw;
-    margin: 5em auto 1em;
+    margin: 3em auto 1em;
 }
 
 .content > * {
@@ -144,9 +144,9 @@ input[type="file"] {
     grid-template-columns: 100%;
 }
 
-input[id="showURL"]:checked ~ #urlDiv,
-input[id="showText"]:checked ~ #textDiv,
-input[id="showFile"]:checked ~ #fileDiv {
+form:has(input[id="showURL"]:checked) #urlDiv,
+form:has(input[id="showText"]:checked) #textDiv,
+form:has(input[id="showFile"]:checked) #fileDiv {
     display: grid;
 }
 
@@ -158,7 +158,7 @@ input[id="showFile"]:checked ~ #fileDiv {
     grid-template-columns: 100%;
 }
 
-input[id="showCustomKey"]:checked ~ #customDiv {
+form:has(input[id="showCustomKey"]:checked) #customDiv {
     display: grid;
 }
 
@@ -170,7 +170,7 @@ input[id="showCustomKey"]:checked ~ #customDiv {
     grid-template-columns: 100%;
 }
 
-input[id="showPassword"]:checked ~ #passwordDiv {
+form:has(input[id="showPassword"]:checked) #passwordDiv {
     display: grid;
 }
 
@@ -229,8 +229,17 @@ input[id="showPassword"]:checked ~ #passwordDiv {
 
 /* Constrain the width of the number input for "Max Uses" */
 .inputbox[type=number] {
-    width: 10em;
-    justify-self: start; /* Prevents the input from stretching to fill the grid cell */
+    width: 7em; /* Adjust width */
+    background-color: #3a3a3a;
+    border: 1px solid #444;
+    color: #fff;
+    padding: 0.75em 1em;
+    border-radius: 4px;
+}
+
+.inputbox[type=number]:focus {
+    outline: none;
+    border-color: #00ff00; /* Use accent green */
 }
 
 .footer-link {
@@ -508,4 +517,123 @@ select.is-overridden {
 
 .form-grid-span-2 {
     grid-column: span 2;
+}
+
+/* Modern Button Radios */
+.button-radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1em;
+    grid-column: span 2; /* Make it span both columns of the parent grid */
+}
+
+.button-radio-group label {
+    flex-grow: 1;
+    cursor: pointer;
+}
+
+.button-radio-input {
+    /* Visually hide the radio button */
+    opacity: 0;
+    position: absolute;
+    width: 0;
+    height: 0;
+}
+
+.button-radio-label {
+    display: block;
+    padding: 1em 1.5em;
+    background-color: #3a3a3a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    text-align: center;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.button-radio-group label:hover .button-radio-label {
+    background-color: #4a4a4a;
+}
+
+.button-radio-label .button-radio-title {
+    display: block;
+    font-weight: 600;
+    font-size: 1.1em;
+}
+
+.button-radio-label .button-radio-desc {
+    display: block;
+    font-size: 0.8em;
+    color: #aaa;
+    margin-top: 0.25em;
+}
+
+/* Style for the selected button */
+.button-radio-input:checked + .button-radio-label {
+    background-color: #097100; /* Use the existing green accent color */
+    border-color: #00ff00;
+}
+
+.button-radio-input:checked + .button-radio-label .button-radio-desc {
+    color: #e0e0e0;
+}
+
+/* Modern Toggle Switch */
+.form-row {
+    display: flex;
+    justify-content: flex-start;
+    gap: 1em;
+    align-items: center;
+    padding: 0.1em 0;
+    grid-column: span 2;
+}
+
+
+
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 28px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-switch-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #4a4a4a;
+    transition: .4s;
+    border-radius: 28px;
+}
+
+.toggle-switch-slider:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 4px;
+    bottom: 4px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+}
+
+.toggle-switch input:checked + .toggle-switch-slider {
+    background-color: #097100; /* Green accent */
+}
+
+.toggle-switch input:checked + .toggle-switch-slider:before {
+    transform: translateX(22px);
+}
+
+input[type=submit]:hover {
+    background-color: #0c8f00; /* A slightly lighter green */
 }
