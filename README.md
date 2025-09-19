@@ -19,6 +19,7 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
 * **QR Code Generation**: Automatically generates a scannable QR code for each created short link.
 * **Quick Add**: Create short links on the fly with a simple GET request to the root URL.
 * **Link Inspection**: Safely inspect the destination of a short link by appending a `~` to the key.
+* **Link Descriptions**: Add a description field to links to make them easier to identify and manage in the admin panel.
 
 ### Administration & Management
 
@@ -52,7 +53,7 @@ A powerful, self-hostable link shortener and text sharing service with multi-dom
 
 ### Extensibility
 
-* **Public API**: A RESTful API for programmatic link creation, deletion, and updating, authenticated with secure bearer tokens.
+* **Public API**: A RESTful API for programmatic link creation, deletion, updating, and reading of link details, authenticated with secure bearer tokens.
 * **Customizable Theming**: Override the default HTML templates with your own to match your brand.
 
 ## Installation
@@ -125,8 +126,6 @@ For detailed information on using the RESTful API for programmatic link manageme
 
 * **Data Visualization**: Continue to expand the data visualization capabilities on the statistics page with more charts and interactive elements.
 * **User Accounts**: Allow non-admin users to register for accounts to manage their own links and API keys, turning the service into a multi-tenant platform.
-* **Link Descriptions**: Add a description field to links to make them easier to identify and manage in the admin panel.
-* **API Expansion**: Continue to expand the API to allow reading link details for more powerful programmatic administration.
 * **Health Check Endpoint**: Create a dedicated `/health` endpoint for automated monitoring by deployment platforms.
 * **Admin Audit Log**: Track all administrative actions (e.g., who deleted a link, changed a setting, or generated an API key) for security and accountability.
 

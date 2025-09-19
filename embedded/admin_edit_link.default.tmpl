@@ -22,6 +22,9 @@
                 <textarea id="text_content" name="text_content" class="text-dump-box" rows="10">{{.DataString}}</textarea>
                 {{end}}
 
+                <label for="description">Description:</label>
+                <input type="text" id="description" name="description" class="inputbox" value="{{.Link.Description}}">
+
                 <label for="expires_at">Expires At (YYYY-MM-DD HH:MM:SS):</label>
                 <input type="text" id="expires_at" name="expires_at" class="inputbox" value="{{.Link.ExpiresAt.Format "2006-01-02 15:04:05"}}" required>
 

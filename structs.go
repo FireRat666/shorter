@@ -133,6 +133,7 @@ type Link struct {
 	TimesUsed    int
 	ExpiresAt    time.Time
 	CreatedAt    time.Time
+	Description  string
 }
 
 // Session represents a user's login session in the database.
@@ -348,10 +349,11 @@ type adminEditStaticLinkPageVars struct {
 
 // adminEditLinkPageVars holds the data for the dynamic link edit page.
 type adminEditLinkPageVars struct {
-	Link       Link
-	DataString string // The link's data, decompressed if necessary.
-	CSRFToken  string
-	CssSRIHash string
+	Link        Link
+	DataString  string // The link's data, decompressed if necessary.
+	Description string
+	CSRFToken   string
+	CssSRIHash  string
 }
 
 // adminAbuseReportsPageVars holds data for the abuse reports management page.
@@ -384,12 +386,13 @@ type adminAPIKeysPageVars struct {
 
 // apiCreateLinkRequest defines the structure for a JSON request to create a new link via the API.
 type apiCreateLinkRequest struct {
-	URL       string `json:"url"`
-	Domain    string `json:"domain,omitempty"`     // Optional. If not provided, use PrimaryDomain.
-	ExpiresIn string `json:"expires_in,omitempty"` // Optional. e.g., "1h", "30m". If not provided, use a default.
-	MaxUses   int    `json:"max_uses,omitempty"`   // Optional.
-	Password  string `json:"password,omitempty"`   // Optional.
-	CustomKey string `json:"custom_key,omitempty"` // Optional.
+	URL         string `json:"url"`
+	Domain      string `json:"domain,omitempty"`     // Optional. If not provided, use PrimaryDomain.
+	ExpiresIn   string `json:"expires_in,omitempty"` // Optional. e.g., "1h", "30m". If not provided, use a default.
+	MaxUses     int    `json:"max_uses,omitempty"`   // Optional.
+	Password    string `json:"password,omitempty"`   // Optional.
+	CustomKey   string `json:"custom_key,omitempty"` // Optional.
+	Description string `json:"description,omitempty"`
 }
 
 // apiCreateLinkResponse defines the structure for a successful JSON response after creating a link.
@@ -426,6 +429,7 @@ type apiGetLinkResponse struct {
 	TimesUsed    int       `json:"times_used"`
 	ExpiresAt    time.Time `json:"expires_at"`
 	CreatedAt    time.Time `json:"created_at"`
+	Description  string    `json:"description"`
 }
 
 // CSPReport represents the structure of a CSP violation report sent by the browser.

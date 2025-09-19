@@ -165,7 +165,7 @@
             <h2>Active Links &amp; Text Dumps</h2>
             <form class="search-form" method="GET" action="/admin/edit">
                 <input type="hidden" name="domain" value="{{.Domain}}">
-                <input type="text" name="q" class="inputbox" placeholder="Search by key..." value="{{.SearchQuery}}">
+                <input type="text" name="q" class="inputbox" placeholder="Search by key or description..." value="{{.SearchQuery}}">
                 <input type="submit" value="Search" class="button">
                 <a href="/admin/edit?domain={{.Domain}}" class="button clear-button">Clear</a>
             </form>
@@ -180,6 +180,7 @@
                                 <th><input type="checkbox" id="select-all-links" title="Select All"></th>
                                 <th>Key</th>
                                 <th>Type</th>
+                                <th>Description</th>
                                 <th>Creator</th>
                                 <th>Clicks</th>
                                 <th>Expires At</th>
@@ -195,6 +196,7 @@
                                     {{if .PasswordHash.Valid}} <span title="Password Protected">🔒</span>{{end}}
                                 </td>
                                 <td>{{.LinkType}}</td>
+                                <td>{{.Description}}</td>
                                 <td>{{if .CreatedBy.Valid}}{{.CreatedBy.String}}{{else}}Anonymous{{end}}</td>
                                 <td>{{.TimesUsed}}</td>
                                 <td>{{.ExpiresAt.Format "2006-01-02 15:04 MST"}}</td>

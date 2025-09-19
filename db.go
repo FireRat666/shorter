@@ -47,6 +47,7 @@ func setupDB(databaseURL string) error {
 		times_used INT DEFAULT 0 NOT NULL,
 		expires_at TIMESTAMPTZ NOT NULL,
 		created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+		description TEXT,
 		PRIMARY KEY (key, domain)
 	);`
 
@@ -169,6 +170,9 @@ func setupDB(databaseURL string) error {
 		return err
 	}
 	if err := runSchemaMigration(ctx, "sessions", "csrf_token", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := runSchemaMigration(ctx, "links", "description", "TEXT"); err != nil {
 		return err
 	}
 
@@ -392,7 +396,7 @@ func getLinkCountForDomain(ctx context.Context, domain, searchQuery string) (int
 	query := `SELECT COUNT(*) FROM links WHERE domain = $1 AND expires_at > NOW()`
 
 	if searchQuery != "" {
-		query += ` AND key ILIKE $2`
+		query += ` AND (key ILIKE $2 OR description ILIKE $2)`
 		args = append(args, "%"+searchQuery+"%")
 	}
 
@@ -407,12 +411,12 @@ func getLinkCountForDomain(ctx context.Context, domain, searchQuery string) (int
 func getLinksForDomain(ctx context.Context, domain, searchQuery string, limit, offset int) ([]Link, error) {
 	args := []interface{}{domain}
 	query := `
-		SELECT key, link_type, times_used, expires_at, password_hash, created_by
+		SELECT key, link_type, times_used, expires_at, password_hash, created_by, description
 		FROM links
 		WHERE domain = $1 AND expires_at > NOW()`
 
 	if searchQuery != "" {
-		query += ` AND key ILIKE $2`
+		query += ` AND (key ILIKE $2 OR description ILIKE $2)`
 		args = append(args, "%"+searchQuery+"%")
 	}
 
@@ -436,6 +440,7 @@ func getLinksForDomain(ctx context.Context, domain, searchQuery string, limit, o
 			&link.ExpiresAt,
 			&link.PasswordHash,
 			&link.CreatedBy,
+			&link.Description,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan link row: %w", err)
 		}
@@ -447,7 +452,7 @@ func getLinksForDomain(ctx context.Context, domain, searchQuery string, limit, o
 // getAllActiveLinks retrieves all active links from the database.
 func getAllActiveLinks(ctx context.Context) ([]Link, error) {
 	query := `
-		SELECT key, domain, link_type, data, is_compressed, password_hash, created_by, times_allowed, times_used, expires_at, created_at
+		SELECT key, domain, link_type, data, is_compressed, password_hash, created_by, times_allowed, times_used, expires_at, created_at, description
 		FROM links
 		WHERE expires_at > NOW()
 		ORDER BY created_at DESC;`
@@ -473,6 +478,7 @@ func getAllActiveLinks(ctx context.Context) ([]Link, error) {
 			&link.TimesUsed,
 			&link.ExpiresAt,
 			&link.CreatedAt,
+			&link.Description,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan link row: %w", err)
 		}
@@ -761,8 +767,8 @@ func createLinkInDB(ctx context.Context, link Link) error {
 	// If the existing link is still active, the WHERE condition is false, the UPDATE is
 	// skipped, and zero rows are affected.
 	query := `
-		INSERT INTO links (key, domain, link_type, data, is_compressed, password_hash, created_by, times_allowed, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO links (key, domain, link_type, data, is_compressed, password_hash, created_by, times_allowed, expires_at, description)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (key, domain) DO UPDATE
 		SET
 			link_type = EXCLUDED.link_type,
@@ -773,11 +779,12 @@ func createLinkInDB(ctx context.Context, link Link) error {
 			times_allowed = EXCLUDED.times_allowed,
 			times_used = 0, -- Reset usage count for the new link
 			expires_at = EXCLUDED.expires_at,
-			created_at = NOW()
+			created_at = NOW(),
+			description = EXCLUDED.description
 		WHERE
 			links.expires_at <= NOW() OR (links.times_allowed > 0 AND links.times_used >= links.times_allowed);`
 
-	result, err := db.ExecContext(ctx, query, link.Key, link.Domain, link.LinkType, link.Data, link.IsCompressed, link.PasswordHash, link.CreatedBy, link.TimesAllowed, link.ExpiresAt)
+	result, err := db.ExecContext(ctx, query, link.Key, link.Domain, link.LinkType, link.Data, link.IsCompressed, link.PasswordHash, link.CreatedBy, link.TimesAllowed, link.ExpiresAt, link.Description)
 	if err != nil {
 		return fmt.Errorf("failed to insert or update link in database: %w", err)
 	}
@@ -814,7 +821,7 @@ func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 	// We will check for expiration in the application logic so we can perform
 	// a "just-in-time" deletion of the expired link.
 	querySelect := `
-		SELECT key, domain, link_type, data, is_compressed, password_hash, created_by, times_allowed, times_used, expires_at, created_at
+		SELECT key, domain, link_type, data, is_compressed, password_hash, created_by, times_allowed, times_used, expires_at, created_at, description
 		FROM links
 		WHERE key = $1 AND domain = $2
 		FOR UPDATE;`
@@ -831,6 +838,7 @@ func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 		&link.TimesUsed,
 		&link.ExpiresAt,
 		&link.CreatedAt,
+		&link.Description,
 	)
 
 	if err != nil {
@@ -1011,7 +1019,7 @@ func deleteSessionByToken(ctx context.Context, token string) error {
 func getLinkDetails(ctx context.Context, key, domain string) (*Link, error) {
 	link := &Link{}
 	query := `
-		SELECT key, domain, link_type, data, is_compressed, password_hash, created_by, times_allowed, times_used, expires_at, created_at
+		SELECT key, domain, link_type, data, is_compressed, password_hash, created_by, times_allowed, times_used, expires_at, created_at, description
 		FROM links
 		WHERE key = $1 AND domain = $2;`
 
@@ -1027,6 +1035,7 @@ func getLinkDetails(ctx context.Context, key, domain string) (*Link, error) {
 		&link.TimesUsed,
 		&link.ExpiresAt,
 		&link.CreatedAt,
+		&link.Description,
 	)
 
 	if err != nil {
@@ -1046,8 +1055,9 @@ func updateLink(ctx context.Context, link Link) error {
 			is_compressed = $2,
 			password_hash = $3,
 			times_allowed = $4,
-			expires_at = $5
-		WHERE key = $6 AND domain = $7;`
+			expires_at = $5,
+			description = $6
+		WHERE key = $7 AND domain = $8;`
 
 	_, err := db.ExecContext(ctx, query,
 		link.Data,
@@ -1055,6 +1065,7 @@ func updateLink(ctx context.Context, link Link) error {
 		link.PasswordHash,
 		link.TimesAllowed,
 		link.ExpiresAt,
+		link.Description,
 		link.Key,
 		link.Domain,
 	)

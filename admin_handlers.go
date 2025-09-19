@@ -1040,9 +1040,10 @@ func handleAdminEditLinkPageGET(w http.ResponseWriter, r *http.Request, domain, 
 	}
 
 	pageVars := adminEditLinkPageVars{
-		Link:       *link,
-		DataString: dataString,
-		CssSRIHash: cssSRIHash,
+		Link:        *link,
+		DataString:  dataString,
+		Description: link.Description,
+		CssSRIHash:  cssSRIHash,
 	}
 
 	pageVars.CSRFToken = getOrSetCSRFToken(w, r)
@@ -1139,6 +1140,9 @@ func handleAdminEditLinkPagePOST(w http.ResponseWriter, r *http.Request, domain,
 		link.PasswordHash.Valid = true
 	}
 	// If neither condition is met, the password remains unchanged.
+
+	// Update description.
+	link.Description = r.FormValue("description")
 
 	// Persist the changes to the database.
 	if err := updateLink(r.Context(), *link); err != nil {
