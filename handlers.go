@@ -1364,6 +1364,10 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 			RemainingUses:  lnk.TimesAllowed - lnk.TimesUsed,
 			AbuseReporting: config.AbuseReporting,
 			CssSRIHash:     cssSRIHash,
+			OGTitle:        fmt.Sprintf("Link via %s", r.Host),
+			OGDescription:  string(lnk.Data),
+			OGImage:        scheme + "://" + r.Host + "/logo.png",
+			OGUrl:          scheme + "://" + r.Host + "/" + key,
 		}
 		if err := t.Execute(w, tmplArgs); err != nil {
 			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to execute show_redirect template: "+err.Error())
@@ -1637,6 +1641,7 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 			Domain:         scheme + "://" + r.Host,
 			DestinationURL: string(link.Data), // The original long URL is the destination.
 			ShortURL:       fullURL,           // The newly created short link.
+			QRCodeURL:      "/qr?url=" + url.QueryEscape(fullURL),
 			Timeout:        link.ExpiresAt.Format("Mon 2006-01-02 15:04 MST"),
 			TimesAllowed:   link.TimesAllowed,
 			RemainingUses:  link.TimesAllowed, // On creation, remaining uses equals times allowed.

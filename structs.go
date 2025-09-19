@@ -155,6 +155,7 @@ type linkCreatedPageVars struct {
 	Domain         string
 	DestinationURL string
 	ShortURL       string
+	QRCodeURL      string
 	Timeout        string
 	TimesAllowed   int
 	RemainingUses  int
@@ -204,6 +205,10 @@ type showRedirectPageVars struct {
 	RemainingUses  int
 	AbuseReporting AbuseReportingConfig
 	CssSRIHash     string
+	OGTitle        string
+	OGDescription  string
+	OGImage        string
+	OGUrl          string
 }
 
 type showTextVars struct {

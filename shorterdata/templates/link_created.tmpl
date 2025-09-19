@@ -15,14 +15,17 @@
             <br>
             <p>This link will be removed on {{.Timeout}}.
             {{if gt .TimesAllowed 0}}<br>It can be used {{.RemainingUses}} time(s).{{end}}</p>
+			{{if .KeyExtended}}
+			<p class="info">Note: The requested key length was not available, so a longer key was generated to ensure uniqueness.</p>
+			{{end}}
         </div>
         <div class="tos">
             <input id="showQR" class="toggle-checkbox" type="checkbox" />
             <label for="showQR" class="toggle-label">Show/Hide QR Code</label>
             <div class="toggle-content">
                 <div class="qr-code-container">
-                    <img src="/qr?url={{.ShortURL}}" alt="QR Code for {{.ShortURL}}">
-                    <p>Scan the QR code to access the link on your mobile device.</p>
+                    <img src="{{.QRCodeURL}}" alt="QR Code for {{.ShortURL}}">
+                    <p>Scan the QR code to access the link on your mobile device. <a href="{{.QRCodeURL}}" download="qr_code.png">Download</a></p>
                 </div>
             </div>
         </div>

@@ -24,8 +24,8 @@
             <label for="showQR" class="toggle-label">Show/Hide QR Code</label>
             <div class="toggle-content">
                 <div class="qr-code-container">
-                    <img src="/qr?url={{.ShortURL}}" alt="QR Code for {{.ShortURL}}">
-                    <p>Scan the QR code to access the link on your mobile device.</p>
+                    <img src="{{.QRCodeURL}}" alt="QR Code for {{.ShortURL}}">
+                    <p>Scan the QR code to access the link on your mobile device. <a href="{{.QRCodeURL}}" download="qr_code.png">Download</a></p>
                 </div>
             </div>
         </div>
