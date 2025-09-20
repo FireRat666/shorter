@@ -933,6 +933,7 @@ func handleCSPReport(w http.ResponseWriter, r *http.Request) {
 
 // handleRegisterPage handles user registration for a specific domain.
 func handleRegisterPage(w http.ResponseWriter, r *http.Request) {
+	addHeaders(w, r)
 	domain := r.URL.Query().Get("domain")
 	if domain == "" {
 		// If no domain is specified in the query, fall back to the host header.
@@ -960,20 +961,24 @@ func handleRegisterPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Define the struct for template variables inside the handler
-		// to keep it locally scoped.
+		captchaActive := config.HCaptcha.EnableForRegistration && config.HCaptcha.SiteKey != ""
+
 		type registerPageVars struct {
-			CssSRIHash string
-			Error      string
-			CSRFToken  string
-			Domain     string
+			CssSRIHash      string
+			Error           string
+			CSRFToken       string
+			Domain          string
+			CaptchaActive   bool
+			HCaptchaSiteKey string
 		}
 
 		pageVars := registerPageVars{
-			CssSRIHash: cssSRIHash,
-			Domain:     domain,
-			CSRFToken:  getOrSetCSRFToken(w, r),
-			Error:      r.URL.Query().Get("error"),
+			CssSRIHash:      cssSRIHash,
+			Domain:          domain,
+			CSRFToken:       getOrSetCSRFToken(w, r),
+			Error:           r.URL.Query().Get("error"),
+			CaptchaActive:   captchaActive,
+			HCaptchaSiteKey: config.HCaptcha.SiteKey,
 		}
 
 		if err := registerTmpl.Execute(w, pageVars); err != nil {
@@ -987,6 +992,14 @@ func handleRegisterPage(w http.ResponseWriter, r *http.Request) {
 			if err := r.ParseForm(); err != nil {
 				logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Registration form parse error: "+err.Error())
 				return
+			}
+
+			if config.HCaptcha.EnableForRegistration {
+				hCaptchaResponse := r.FormValue("h-captcha-response")
+				if !verifyCaptcha(hCaptchaResponse, r.RemoteAddr) {
+					http.Redirect(w, r, fmt.Sprintf("/register?domain=%s&error=CAPTCHA verification failed. Please try again.", url.QueryEscape(domain)), http.StatusSeeOther)
+					return
+				}
 			}
 
 			username := r.FormValue("username")
@@ -1079,10 +1092,14 @@ func handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	captchaActive := config.HCaptcha.EnableForLogin && config.HCaptcha.SiteKey != ""
+
 	pageVars := loginPageVars{
-		CssSRIHash: cssSRIHash,
-		Error:      r.URL.Query().Get("error"),
-		CSRFToken:  csrfToken,
+		CssSRIHash:      cssSRIHash,
+		Error:           r.URL.Query().Get("error"),
+		CSRFToken:       csrfToken,
+		CaptchaActive:   captchaActive,
+		HCaptchaSiteKey: config.HCaptcha.SiteKey,
 	}
 
 	if err := loginTmpl.Execute(w, pageVars); err != nil {
@@ -1096,6 +1113,14 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Login form parse error: "+err.Error())
 		return
+	}
+
+	if config.HCaptcha.EnableForLogin {
+		hCaptchaResponse := r.FormValue("h-captcha-response")
+		if !verifyCaptcha(hCaptchaResponse, r.RemoteAddr) {
+			http.Redirect(w, r, "/login?error=CAPTCHA+verification+failed.+Please+try+again.", http.StatusSeeOther)
+			return
+		}
 	}
 
 	username := r.FormValue("username")
@@ -1260,6 +1285,7 @@ func handle2FALoginPage(w http.ResponseWriter, r *http.Request) {
 
 // render2FAPage is a helper to render the 2FA login page.
 func render2FAPage(w http.ResponseWriter, r *http.Request, errorMsg string) {
+	addHeaders(w, r)
 	tmpl, ok := templateMap["login_2fa"]
 	if !ok {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load login_2fa template")
@@ -1657,7 +1683,7 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 			}
 
 			fileBytes, err := os.ReadFile(filePath)
-			if err != nil {
+		if err != nil {
 				logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not retrieve file for download: "+err.Error())
 				return
 			}
@@ -1904,6 +1930,7 @@ func createAndRespond(w http.ResponseWriter, r *http.Request, link *Link, keyLen
 
 // handleReportPage handles displaying the abuse report form and processing submissions.
 func handleReportPage(w http.ResponseWriter, r *http.Request) {
+	addHeaders(w, r)
 	if !config.AbuseReporting.Enabled {
 		http.NotFound(w, r)
 		return
@@ -1941,11 +1968,13 @@ func handleReportPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Verify the hCaptcha response.
-		hCaptchaResponse := r.FormValue("h-captcha-response")
-		if !verifyHCaptcha(hCaptchaResponse, r.RemoteAddr) {
-			renderReportPage(w, r, key, "CAPTCHA verification failed. Please try again.")
-			return
+		// Verify the hCaptcha response if enabled for abuse reports.
+		if config.AbuseReporting.CaptchaEnabled {
+			hCaptchaResponse := r.FormValue("h-captcha-response")
+			if !verifyCaptcha(hCaptchaResponse, r.RemoteAddr) {
+				renderReportPage(w, r, key, "CAPTCHA verification failed. Please try again.")
+				return
+			}
 		}
 
 		// Save the verified report to the database.
@@ -1976,6 +2005,7 @@ func handleReportPage(w http.ResponseWriter, r *http.Request) {
 
 // renderReportPage is a helper to render the abuse report form.
 func renderReportPage(w http.ResponseWriter, r *http.Request, key, errorMsg string) {
+	addHeaders(w, r)
 	reportTmpl, ok := templateMap["report"]
 	if !ok {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load report template")
@@ -1983,7 +2013,7 @@ func renderReportPage(w http.ResponseWriter, r *http.Request, key, errorMsg stri
 	}
 
 	// Captcha is only active if the feature is enabled AND a site key is provided.
-	captchaActive := config.AbuseReporting.Enabled && config.AbuseReporting.HCaptcha.SiteKey != ""
+	captchaActive := config.AbuseReporting.CaptchaEnabled && config.HCaptcha.SiteKey != ""
 
 	pageVars := struct {
 		ReportedURL     string
@@ -1997,7 +2027,7 @@ func renderReportPage(w http.ResponseWriter, r *http.Request, key, errorMsg stri
 		ReportedURL:     r.Host + "/" + key,
 		Key:             key,
 		Error:           errorMsg,
-		HCaptchaSiteKey: config.AbuseReporting.HCaptcha.SiteKey,
+		HCaptchaSiteKey: config.HCaptcha.SiteKey,
 		CSRFToken:       getOrSetCSRFToken(w, r),
 		CaptchaActive:   captchaActive,
 		CssSRIHash:      cssSRIHash,
@@ -2008,9 +2038,9 @@ func renderReportPage(w http.ResponseWriter, r *http.Request, key, errorMsg stri
 	}
 }
 
-// verifyHCaptcha sends a request to the hCaptcha API to verify a user's response.
-func verifyHCaptcha(response, remoteIP string) bool {
-	if config.AbuseReporting.HCaptcha.SecretKey == "" {
+// verifyCaptcha sends a request to the hCaptcha API to verify a user's response.
+func verifyCaptcha(response, remoteIP string) bool {
+	if config.HCaptcha.SecretKey == "" {
 		slogger.Info("hCaptcha secret key is not configured. CAPTCHA verification is disabled, allowing submission.")
 		return true
 	}
@@ -2023,7 +2053,7 @@ func verifyHCaptcha(response, remoteIP string) bool {
 	}
 
 	data := url.Values{}
-	data.Set("secret", config.AbuseReporting.HCaptcha.SecretKey)
+	data.Set("secret", config.HCaptcha.SecretKey)
 	data.Set("response", response)
 	data.Set("remoteip", ip)
 

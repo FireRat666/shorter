@@ -31,6 +31,7 @@ type Config struct {
 	CleanupInterval          string                     `yaml:"CleanupInterval"`
 	CSP                      string                     `yaml:"CSP"`
 	AbuseReporting           AbuseReportingConfig       `yaml:"AbuseReporting"`
+	HCaptcha                 HCaptchaConfig             `yaml:"hCaptcha"`
 	AnonymousRateLimit       AnonymousRateLimitConfig   `yaml:"AnonymousRateLimit"`
 	APIRateLimit             APIRateLimitConfig         `yaml:"APIRateLimit"`
 	Admin                    AdminConfig                `yaml:"Admin"`
@@ -57,14 +58,16 @@ type MalwareProtectionConfig struct {
 
 // AbuseReportingConfig holds settings for the abuse reporting feature.
 type AbuseReportingConfig struct {
-	Enabled  bool           `yaml:"Enabled"`
-	HCaptcha HCaptchaConfig `yaml:"hCaptcha"`
+	Enabled        bool `yaml:"Enabled"`
+	CaptchaEnabled bool `yaml:"CaptchaEnabled"`
 }
 
-// HCaptchaConfig holds the site key and secret key for the hCaptcha service.
+// HCaptchaConfig holds the site key and secret key for hCaptcha, and flags for where it's used.
 type HCaptchaConfig struct {
-	SiteKey   string `yaml:"SiteKey"`
-	SecretKey string `yaml:"SecretKey"`
+	SiteKey               string `yaml:"SiteKey"`
+	SecretKey             string `yaml:"SecretKey"`
+	EnableForLogin        bool   `yaml:"EnableForLogin"`
+	EnableForRegistration bool   `yaml:"EnableForRegistration"`
 }
 
 // hCaptchaVerifyResponse is the expected JSON response from the hCaptcha API.
@@ -90,7 +93,7 @@ type APIRateLimitConfig struct {
 
 // RateLimitXYConfig holds settings for X actions in Y time rate limiting.
 type RateLimitXYConfig struct {
-	Enabled bool   `yaml:"Enabled"`	
+	Enabled bool   `yaml:"Enabled"`
 	X       int    `yaml:"X"` // How many actions
 	Y       string `yaml:"Y"` // In what time frame
 }
@@ -280,9 +283,11 @@ type errorPageVars struct {
 
 // loginPageVars holds data for the login page template.
 type loginPageVars struct {
-	CssSRIHash string
-	Error      string
-	CSRFToken  string
+	CssSRIHash      string
+	Error           string
+	CSRFToken       string
+	CaptchaActive   bool
+	HCaptchaSiteKey string
 }
 
 // passwordPromptPageVars holds data for the password prompt page.

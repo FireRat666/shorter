@@ -22,6 +22,10 @@
             <input type="password" id="password" name="password" class="inputbox" required>
             <label for="confirm_password">Confirm Password:</label>
             <input type="password" id="confirm_password" name="confirm_password" class="inputbox" required>
+            {{if .CaptchaActive}}
+            <div class="h-captcha" data-sitekey="{{.HCaptchaSiteKey}}" style="margin-bottom: 10px;"></div>
+            <script src="https://js.hcaptcha.com/1/api.js" async defer></script>
+            {{end}}
             <input type="submit" value="Register" class="button">
         </form>
         <a href="/login?domain={{.Domain}}">Already have an account? Login</a>

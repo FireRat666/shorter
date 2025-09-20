@@ -84,7 +84,7 @@ MinSizeToGzip: 128
 # Security Settings
 # -----------------------------------------------------------------------------
 # The Content-Security-Policy header value for non-admin pages.
-CSP: "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; report-uri /csp-report"
+CSP: "default-src 'none'; script-src 'self' https://js.hcaptcha.com https://*.hcaptcha.com; frame-src 'self' https://hcaptcha.com https://*.hcaptcha.com; style-src 'self' https://*.hcaptcha.com; img-src 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; report-uri /csp-report"
 
 # Settings for DNS-based malware protection.
 MalwareProtection:
@@ -102,9 +102,20 @@ MalwareProtection:
 # Get keys from https://www.hcaptcha.com/
 AbuseReporting:
   Enabled: true
-  hCaptcha:
-    SiteKey: "" # Your hCaptcha site key (public)
-    SecretKey: "" # Your hCaptcha secret key (private, set via env var)
+  # Enable this to require a captcha for abuse reports.
+  CaptchaEnabled: false
+
+# -----------------------------------------------------------------------------
+# HCaptcha Configuration
+# -----------------------------------------------------------------------------
+hCaptcha:
+  # These keys will be used for all captcha-enabled features.
+  SiteKey: "your-hcaptcha-site-key"
+  SecretKey: "your-hcaptcha-secret-key"
+  # Set to true to enable captcha on the login page.
+  EnableForLogin: false
+  # Set to true to enable captcha on the registration page.
+  EnableForRegistration: false
 
 # -----------------------------------------------------------------------------
 # Rate Limiting

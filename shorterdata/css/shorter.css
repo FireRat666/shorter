@@ -249,6 +249,16 @@ form:has(input[id="showPassword"]:checked) #passwordDiv {
     border-color: #00ff00; /* Use accent green */
 }
 
+.emailinputbox {
+  width: 100%;
+  padding: 12px 20px;
+  display: inline-block;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-sizing: border-box;
+  font-family: 'Roboto', sans-serif;
+}
+
 .footer-link {
     max-width: 800px; /* Match the width of the main form for alignment */
     margin: 1em auto; /* Center the footer block itself */

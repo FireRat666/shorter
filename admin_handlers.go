@@ -109,14 +109,20 @@ func handleAdminLoginPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	captchaActive := config.HCaptcha.EnableForLogin && config.HCaptcha.SiteKey != ""
+
 	pageVars := struct {
-		CssSRIHash string
-		Error      string
-		CSRFToken  string
+		CssSRIHash      string
+		Error           string
+		CSRFToken       string
+		CaptchaActive   bool
+		HCaptchaSiteKey string
 	}{
-		CssSRIHash: cssSRIHash,
-		Error:      r.URL.Query().Get("error"),
-		CSRFToken:  getOrSetCSRFToken(w, r),
+		CssSRIHash:      cssSRIHash,
+		Error:           r.URL.Query().Get("error"),
+		CSRFToken:       getOrSetCSRFToken(w, r),
+		CaptchaActive:   captchaActive,
+		HCaptchaSiteKey: config.HCaptcha.SiteKey,
 	}
 
 	if err := loginTmpl.Execute(w, pageVars); err != nil {
@@ -381,13 +387,13 @@ func renderAdminSecurityPage(w http.ResponseWriter, r *http.Request, adminUser *
 	if !ok {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_security template")
 		return
- 	}
- 	// Determine the domain to use for the Users link.
- 	// If the adminUser is a super_admin and their domain is empty, use the primary domain.
- 	// Otherwise, use the adminUser's domain.
- 	domainForUsersLink := adminUser.Domain
- 	if adminUser.Role == "super_admin" && domainForUsersLink == "" {
- 		domainForUsersLink = config.PrimaryDomain
+	}
+	// Determine the domain to use for the Users link.
+	// If the adminUser is a super_admin and their domain is empty, use the primary domain.
+	// Otherwise, use the adminUser's domain.
+	domainForUsersLink := adminUser.Domain
+	if adminUser.Role == "super_admin" && domainForUsersLink == "" {
+		domainForUsersLink = config.PrimaryDomain
 	}
 
 	pageVars := struct {
