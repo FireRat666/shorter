@@ -69,6 +69,7 @@ func getSubdomainConfig(host string) SubdomainConfig {
 		MaxTextSize:      config.MaxTextSize,
 		MinSizeToGzip:    config.MinSizeToGzip,
 		FileUploadsEnabled: &config.FileUploadsEnabled,
+		RegistrationEnabled: config.Defaults.RegistrationEnabled, // Initialize with default
 		// Initialize AnonymousRateLimit with a copy of the global config's values
 		AnonymousRateLimit: &AnonymousRateLimitConfig{
 			Enabled: config.AnonymousRateLimit.Enabled,
@@ -115,6 +116,9 @@ func getSubdomainConfig(host string) SubdomainConfig {
 		// For boolean pointers, check if the pointer itself is non-nil.
 		if subConfig.FileUploadsEnabled != nil {
 			mergedConfig.FileUploadsEnabled = subConfig.FileUploadsEnabled
+		}
+		if subConfig.RegistrationEnabled != nil {
+			mergedConfig.RegistrationEnabled = subConfig.RegistrationEnabled
 		}
 		// Handle AnonymousRateLimit merging
 		if subConfig.AnonymousRateLimit != nil {
@@ -325,7 +329,31 @@ func deleteUploadedFile(key string) {
 	}
 }
 
+// responseWriterWrapper wraps http.ResponseWriter to track if WriteHeader has been called.
+type responseWriterWrapper struct {
+	http.ResponseWriter
+	headerWritten bool
+	statusCode    int // Store the status code written
+}
 
+func (rw *responseWriterWrapper) WriteHeader(statusCode int) {
+	if rw.headerWritten {
+		// If WriteHeader has already been called, do nothing to prevent a panic.
+		return
+	}
+	rw.ResponseWriter.WriteHeader(statusCode)
+	rw.headerWritten = true
+	rw.statusCode = statusCode
+}
+
+func (rw *responseWriterWrapper) Write(data []byte) (int, error) {
+	if !rw.headerWritten {
+		// If WriteHeader hasn't been called explicitly, call it with 200 OK by default.
+		// This matches the default behavior of http.ResponseWriter.
+		rw.WriteHeader(http.StatusOK)
+	}
+	return rw.ResponseWriter.Write(data)
+}
 
 // logErrors will write the error to the log file and send an HTTP error to the user.
 func logErrors(w http.ResponseWriter, r *http.Request, userMessage string, statusCode int, logMessage string) {
@@ -340,25 +368,32 @@ func logErrors(w http.ResponseWriter, r *http.Request, userMessage string, statu
 		)
 	}
 
+	// Wrap the original ResponseWriter to track header writes.
+	wrapper := &responseWriterWrapper{ResponseWriter: w}
+
 	// Ensure all error pages also receive security headers.
-	addHeaders(w, r)
+	// Pass the wrapper instead of the original ResponseWriter.
+	addHeaders(wrapper, r)
 
 	// Attempt to render the themed error page.
 	errorTmpl, ok := templateMap["error"]
 	if !ok {
 		// Fallback for safety if the template is missing.
-		http.Error(w, userMessage, statusCode)
+		// http.Error will now use the wrapper's WriteHeader.
+		http.Error(wrapper, userMessage, statusCode)
 		return
 	}
 
-	w.WriteHeader(statusCode)
+	// This call to WriteHeader will now be handled by our wrapper,
+	// which prevents superfluous calls.
+	wrapper.WriteHeader(statusCode)
 	vars := errorPageVars{
 		StatusCode: statusCode,
 		Message:    userMessage,
 		CssSRIHash: cssSRIHash,
 	}
-	// We don't check the error here, as we can't send another error response.
-	_ = errorTmpl.Execute(w, vars)
+	// errorTmpl.Execute will write to the wrapper, which ensures WriteHeader is called if not already.
+	_ = errorTmpl.Execute(wrapper, vars)
 }
 
 // logOK logs successful requests.

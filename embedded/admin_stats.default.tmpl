@@ -9,8 +9,18 @@
 <body>
     <div class="content">
         <div class="header">
+            <img src="/logo.png">
             <h1>Site Statistics</h1>
-            <a href="/admin" class="admin-back-link">Back to Admin Panel</a>
+        </div>
+
+        <div class="header-links">
+            <a href="/admin/" class="button">Dashboard</a>
+            <a href="/admin/users?domain={{.Domain}}" class="button">Users</a>
+            <a href="/admin/api-keys" class="button">API Keys</a>
+			<a href="/admin/stats" class="button button-yellow">Statistics</a>
+			<a href="/admin/abuse-reports" class="button">Abuse Reports</a>
+			<a href="/admin/security" class="button">Account Settings</a>
+            <a href="/logout" class="button button-red">Logout</a>
         </div>
 
         <div class="tos">

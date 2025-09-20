@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Security</title>
+    <link rel="stylesheet" href="/shorter.css" integrity="{{.CssSRIHash}}">
+</head>
+<body>
+    <div class="content">
+        <div class="header">
+            <img src="/logo.png">
+            <h1>User Security</h1>
+        </div>
+        <div class="header-links">
+             <a href="/user/" class="button">Dashboard</a>
+             <a href="/user/api-keys" class="button">API Keys</a>
+             <a href="/logout" class="button button-red">Logout</a>
+        </div>
+
+        <div class="tos">
+             <p>Welcome! This is your security page where you can manage settings for your account.</p>
+
+            {{if .Error}}
+                <div class="error-message">{{.Error}}</div>
+            {{end}}
+
+            <h2>Two-Factor Authentication (2FA)</h2>
+            {{if .TOTPEnabled}}
+                <p>2FA is currently <strong>enabled</strong>.</p>
+                <p>If you need to re-configure your authenticator app, you must first disable 2FA and then re-enable it.</p>
+                <hr>
+                <p>To disable 2FA, enter a code from your authenticator app.</p>
+                <form method="POST" action="/user/security" class="aligned-form">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <input type="hidden" name="action" value="disable-2fa">
+                    <label for="totp_code_disable">Verification Code:</label>
+                    <input type="text" id="totp_code_disable" name="totp_code" required autocomplete="off" placeholder="123456" class="inputbox">
+                    <input type="submit" value="Disable 2FA" class="button danger">
+                </form>
+            {{else if .TOTPProvisioning}}
+                <p>2FA is not yet enabled. Scan the QR code with your authenticator app, then enter the generated code to verify and complete the setup.</p>
+                <img src="/user/security/qr" alt="2FA QR Code">
+                <p>Or manually enter the secret: <code>{{.TOTPSecret}}</code></p>
+                <form method="POST" action="/user/security" class="aligned-form">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <input type="hidden" name="action" value="verify-2fa">
+                    <label for="totp_code_verify">Verification Code:</label>
+                    <input type="text" id="totp_code_verify" name="totp_code" required autocomplete="off" placeholder="123456" class="inputbox">
+                    <input type="submit" value="Verify & Enable 2FA" class="button">
+                </form>
+            {{else}}
+                <p>2FA is currently <strong>disabled</strong>.</p>
+                <p>Click the button below to begin setup. You will be shown a QR code to scan with your authenticator app.</p>
+                <form method="POST" action="/user/security">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <input type="hidden" name="action" value="enable-2fa">
+                    <input type="submit" value="Enable 2FA" class="button">
+                </form>
+            {{end}}
+        </div>
+
+        <div class="tos">
+            <h2>Delete Account</h2>
+            <p>This action is irreversible. All of your API keys and sessions will be deleted. Your links will be disassociated from your account.</p>
+            <form method="POST" action="/user/security" class="aligned-form" onsubmit="return confirm('Are you absolutely sure you want to delete your account? This cannot be undone.');">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="hidden" name="action" value="delete-account">
+                {{if .TOTPEnabled}}
+                    <label for="totp_code_delete">2FA Verification Code:</label>
+                    <input type="text" id="totp_code_delete" name="totp_code" required autocomplete="off" placeholder="123456" class="inputbox">
+                {{end}}
+                <input type="submit" value="Delete My Account" class="button danger">
+            </form>
+        </div>
+    </div>
+    <div class="footer-link">
+        <a href="https://github.com/FireRat666/shorter" target="_blank" rel="noopener noreferrer">Source Code on GitHub</a>
+    </div>
+</body>
+</html>

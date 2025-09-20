@@ -8,9 +8,21 @@
 <body>
     <div class="content">
         <div class="header">
+            <img src="/logo.png">
             <h1>Edit Link: {{.Link.Key}}</h1>
             <p>Domain: {{.Link.Domain}}</p>
         </div>
+
+        <div class="header-links">
+            <a href="/admin/" class="button">Dashboard</a>
+            <a href="/admin/users?domain={{.Link.Domain}}" class="button">Users</a>
+            <a href="/admin/api-keys" class="button">API Keys</a>
+			<a href="/admin/stats" class="button">Statistics</a>
+			<a href="/admin/abuse-reports" class="button">Abuse Reports</a>
+			<a href="/admin/security" class="button">Account Settings</a>
+            <a href="/logout" class="button button-red">Logout</a>
+        </div>
+
         <div class="tos">
             <form class="admin-form" method="POST" action="/admin/edit-link?domain={{.Link.Domain}}&key={{.Link.Key}}">
                 <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
@@ -40,7 +52,7 @@
 
                 <input type="submit" value="Update Link" class="admin-submit-button">
             </form>
-            <a href="/admin/edit?domain={{.Link.Domain}}" class="admin-back-link">Back to Subdomain Edit Page</a>
+            <a href="/admin/edit?domain={{.Link.Domain}}" class="button">Back to Subdomain Edit Page</a>
         </div>
     </div>
 </body>

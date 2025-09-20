@@ -9,7 +9,17 @@
 <body>
     <div class="content">
         <div class="header">
+            <img src="/logo.png">
             <h1>Edit Subdomain: {{.Domain}}</h1>
+        </div>
+        <div class="header-links">
+            <a href="/admin/" class="button">Dashboard</a>
+            <a href="/admin/users?domain={{.Domain}}" class="button">Users</a>
+            <a href="/admin/api-keys" class="button">API Keys</a>
+			<a href="/admin/stats" class="button">Statistics</a>
+			<a href="/admin/abuse-reports" class="button">Abuse Reports</a>
+			<a href="/admin/security" class="button">Account Settings</a>
+            <a href="/logout" class="button button-red">Logout</a>
         </div>
         <div class="tos">
             <form class="admin-form" method="POST" action="/admin/edit?domain={{.Domain}}">
@@ -111,12 +121,17 @@
                         <legend>Features</legend>
                         <label for="FileUploadsEnabled">File Uploads Enabled:</label>
                         <input type="checkbox" id="FileUploadsEnabled" name="FileUploadsEnabled" class="checkbox" {{if .Config.FileUploadsEnabled}}checked{{end}}>
+                        <label for="RegistrationEnabled">Registration Enabled:</label>
+                        <input type="checkbox" id="RegistrationEnabled" name="RegistrationEnabled" class="checkbox" {{if .Config.RegistrationEnabled}}checked{{end}}>
                     </fieldset>
                 </div>
 
                 <input type="submit" value="Update Subdomain" class="admin-submit-button">
             </form>
-            <a href="/admin" class="admin-back-link">Back to Admin Panel</a>
+        	<div class="header-links">
+				<a href="/admin" class="button">Back to Admin Panel</a>
+				<a href="/admin/users?domain={{.Domain}}" class="button">Manage Users</a>
+			</div>
         </div>
 
         <div class="tos">
@@ -136,7 +151,7 @@
                         <tr>
                             <td>{{$key}}</td>
                             <td>{{$url}}</td>
-                            <td><a href="/admin/edit_static_link?domain={{$.Domain}}&key={{$key}}" class.="edit-button">Edit</a></td>
+                            <td><a href="/admin/edit_static_link?domain={{$.Domain}}&key={{$key}}" class="edit-button">Edit</a></td>
                             <td>
                                 <form method="POST" action="/admin/edit?domain={{$.Domain}}">
                                     <input type="hidden" name="action" value="delete_static_link">

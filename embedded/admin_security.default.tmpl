@@ -8,22 +8,57 @@
 <body>
     <div class="content">
         <div class="header">
+            <img src="/logo.png">
             <h1>Security Settings</h1>
+        </div>
+
+        <div class="header-links">
+            <a href="/admin/" class="button">Dashboard</a>
+            <a href="/admin/users?domain={{.Domain}}" class="button">Users</a>
+            <a href="/admin/api-keys" class="button">API Keys</a>
+			<a href="/admin/stats" class="button">Statistics</a>
+			<a href="/admin/abuse-reports" class="button">Abuse Reports</a>
+			<a href="/admin/security" class="button button-yellow">Account Settings</a>
+            <a href="/logout" class="button button-red">Logout</a>
         </div>
 
         <div class="tos">
             <h2>Two-Factor Authentication (2FA)</h2>
-            {{if .TOTPEnabled}}
-                <p>2FA is currently <strong>enabled</strong>. To set up a new device, scan the QR code below with your authenticator app (e.g., Google Authenticator, Authy).</p>
+            {{if .Error}}
+                <p class="error">{{.Error}}</p>
+            {{end}}
+
+            {{if .TOTPProvisioning}}
+                <p>Scan the QR code below with your authenticator app (e.g., Google Authenticator, Authy). Then enter the 6-digit code to verify and enable 2FA.</p>
                 <div class="qr-code-container">
                     <img src="/admin/security/qr" alt="2FA QR Code">
                 </div>
                 <p>Your secret key is: <code>{{.TOTPSecret}}</code></p>
+                <form action="/admin/security" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <input type="hidden" name="action" value="verify-2fa">
+                    <label for="totp_code">Verification Code:</label>
+                    <input type="text" id="totp_code" name="totp_code" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" required>
+                    <button type="submit" class="button">Verify and Enable 2FA</button>
+                </form>
+            {{else if .TOTPEnabled}}
+                <p>2FA is currently <strong>enabled</strong>. To disable it, enter a 6-digit code from your authenticator app.</p>
+                <form action="/admin/security" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <input type="hidden" name="action" value="disable-2fa">
+                    <label for="totp_code_disable">Verification Code:</label>
+                    <input type="text" id="totp_code_disable" name="totp_code" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" required>
+                    <button type="submit" class="button-red">Disable 2FA</button>
+                </form>
             {{else}}
-                <p class="info">2FA is currently disabled. To enable it, set `TOTPEnabled: true` and provide a `TOTPSecret` in your configuration file or environment variables.</p>
+                <p class="info">2FA is currently disabled. Click the button below to enable it.</p>
+                <form action="/admin/security" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                    <input type="hidden" name="action" value="enable-2fa">
+                    <button type="submit" class="button">Enable 2FA</button>
+                </form>
             {{end}}
         </div>
-        <a href="/admin" class="admin-back-link">Back to Admin Panel</a>
     </div>
 </body>
 </html>

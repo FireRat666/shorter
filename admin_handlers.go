@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/base32"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"image/png"
@@ -19,35 +19,59 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// adminAPIKeysPageVars holds data for the admin API keys template.
+type adminAPIKeysPageVars struct {
+	APIKeys              []UserAPIKey
+	Users                []User
+	NewKey               string
+	CurrentPage          int
+	TotalPages           int
+	HasPrev              bool
+	HasNext              bool
+	SearchQuery          string
+	CSRFToken            string
+	AdminJsSRIHash       string
+	CssSRIHash           string
+	Error                string
+	CurrentRequestDomain string
+}
+
 // handleAdminRoutes sets up a sub-router for all admin-related endpoints.
 // It applies the sessionAuth middleware to each handler and then wraps the
 // entire sub-router with the CSP middleware for enhanced security.
 func handleAdminRoutes(mux *http.ServeMux) {
+	// Add the unauthenticated admin login route.
+	mux.HandleFunc("/admin/login", handleAdminLoginPage)
+
 	// Create a new router for admin-only endpoints.
 	adminRouter := http.NewServeMux()
 
 	// Register the admin handlers, each wrapped in our new sessionAuth middleware.
 	// The paths are relative to the "/admin" prefix that will be stripped.
-	adminRouter.HandleFunc("/", SessionAuth(handleAdmin)) // Matches /admin
-	adminRouter.HandleFunc("/edit", SessionAuth(handleAdminEditPage))
-	adminRouter.HandleFunc("/edit_static_link", SessionAuth(handleAdminEditStaticLinkPage))
-	adminRouter.HandleFunc("/api-keys", SessionAuth(handleAdminAPIKeysPage))
-	adminRouter.HandleFunc("/edit-link", SessionAuth(handleAdminEditLinkPage))
-	adminRouter.HandleFunc("/abuse-reports", SessionAuth(handleAdminAbuseReportsPage))
+	adminRouter.HandleFunc("/", SessionAuth(roleAuth("super_admin")(handleAdmin))) // Matches /admin
+	adminRouter.HandleFunc("/edit", SessionAuth(roleAuth("domain_admin")(handleAdminEditPage)))
+	adminRouter.HandleFunc("/edit-user", SessionAuth(roleAuth("domain_admin")(handleAdminEditUserPage)))
+	adminRouter.HandleFunc("/edit_static_link", SessionAuth(roleAuth("domain_admin")(handleAdminEditStaticLinkPage)))
+	adminRouter.HandleFunc("/edit-link", SessionAuth(roleAuth("moderator")(handleAdminEditLinkPage)))
+	adminRouter.HandleFunc("/abuse-reports", SessionAuth(roleAuth("moderator")(handleAdminAbuseReportsPage)))
 	adminRouter.HandleFunc("/security", SessionAuth(handleAdminSecurityPage))
-	adminRouter.HandleFunc("/stats", SessionAuth(handleAdminStatsPage))
-	adminRouter.HandleFunc("/logout", SessionAuth(handleAdminLogout)) // Logout must be protected
+	adminRouter.HandleFunc("/stats", SessionAuth(roleAuth("super_admin")(handleAdminStatsPage)))
+	adminRouter.HandleFunc("/users", SessionAuth(roleAuth("domain_admin")(handleAdminUsersPage)))
+	adminRouter.HandleFunc("/users/create", SessionAuth(roleAuth("domain_admin")(handleAdminCreateUser)))
+	adminRouter.HandleFunc("/users/update", SessionAuth(roleAuth("domain_admin")(handleAdminUpdateUser)))
+	adminRouter.HandleFunc("/users/delete", SessionAuth(roleAuth("domain_admin")(handleAdminDeleteUser)))
+	adminRouter.HandleFunc("/api-keys", SessionAuth(roleAuth("super_admin")(handleAdminAPIKeysPage))) // New API Keys route
 
 	// Add the new handlers for the lazy-loaded statistic partials.
-	adminRouter.HandleFunc("/stats/overall", SessionAuth(adminStatsOverallHandler))
-	adminRouter.HandleFunc("/stats/top-links", SessionAuth(adminStatsTopLinksHandler))
-	adminRouter.HandleFunc("/stats/recent-activity", SessionAuth(adminStatsRecentActivityHandler))
-	adminRouter.HandleFunc("/stats/activity-chart-data", SessionAuth(adminStatsActivityChartDataHandler))
+	adminRouter.HandleFunc("/stats/overall", SessionAuth(roleAuth("super_admin")(adminStatsOverallHandler)))
+	adminRouter.HandleFunc("/stats/top-links", SessionAuth(roleAuth("super_admin")(adminStatsTopLinksHandler)))
+	adminRouter.HandleFunc("/stats/recent-activity", SessionAuth(roleAuth("super_admin")(adminStatsRecentActivityHandler)))
+	adminRouter.HandleFunc("/stats/activity-chart-data", SessionAuth(roleAuth("super_admin")(adminStatsActivityChartDataHandler)))
 	adminRouter.HandleFunc("/security/qr", SessionAuth(handleAdminSecurityQR))
-	adminRouter.HandleFunc("/stats/creator-stats", SessionAuth(adminStatsCreatorStatsHandler))
-	adminRouter.HandleFunc("/stats/domain-list", SessionAuth(adminStatsDomainListHandler))
-	adminRouter.HandleFunc("/stats/domain-details", SessionAuth(adminStatsDomainDetailsHandler))
-	adminRouter.HandleFunc("/stats/reset", SessionAuth(handleAdminResetStats))
+	adminRouter.HandleFunc("/stats/creator-stats", SessionAuth(roleAuth("super_admin")(adminStatsCreatorStatsHandler)))
+	adminRouter.HandleFunc("/stats/domain-list", SessionAuth(roleAuth("super_admin")(adminStatsDomainListHandler)))
+	adminRouter.HandleFunc("/stats/domain-details", SessionAuth(roleAuth("super_admin")(adminStatsDomainDetailsHandler)))
+	adminRouter.HandleFunc("/stats/reset", SessionAuth(roleAuth("super_admin")(handleAdminResetStats)))
 
 	// Create a handler that first strips the "/admin" prefix, then passes to the adminRouter.
 	// This is the standard way to handle sub-routing.
@@ -59,31 +83,46 @@ func handleAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("/admin/", finalAdminHandler)
 }
 
-// handleAdminLogout deletes the user's session from the database and clears the cookie.
-func handleAdminLogout(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie("session_token")
-	if err != nil {
-		// If there's no cookie, there's nothing to do.
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+// handleAdminLoginPage serves the admin login page.
+func handleAdminLoginPage(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		handleLogin(w, r)
 		return
 	}
 
-	// Delete the session from the database.
-	if err := deleteSessionByToken(r.Context(), cookie.Value); err != nil {
-		// Log the error, but proceed with logout anyway.
-		slogger.Error("Failed to delete session from database during logout", "error", err)
+	// If the user is already logged in as an admin, redirect them to the dashboard.
+	cookie, err := r.Cookie("session_token")
+	if err == nil {
+		session, _ := getSessionByToken(r.Context(), cookie.Value)
+		if session != nil {
+			user, _ := getUserByID(r.Context(), session.UserID)
+			if user != nil && (user.Role == "super_admin" || user.Role == "domain_admin") {
+				http.Redirect(w, r, "/admin/", http.StatusSeeOther)
+				return
+			}
+		}
 	}
 
-	// Clear the cookie by setting its expiration to a time in the past.
-	http.SetCookie(w, &http.Cookie{
-		Name:    "session_token",
-		Value:   "",
-		Expires: time.Unix(0, 0),
-		Path:    "/",
-	})
+	loginTmpl, ok := templateMap["admin_login"]
+	if !ok {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_login template")
+		return
+	}
 
-	// Redirect to the homepage.
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	pageVars := struct {
+		CssSRIHash string
+		Error      string
+		CSRFToken  string
+	}{
+		CssSRIHash: cssSRIHash,
+		Error:      r.URL.Query().Get("error"),
+		CSRFToken:  getOrSetCSRFToken(w, r),
+	}
+
+	if err := loginTmpl.Execute(w, pageVars); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_login template: "+err.Error())
+	}
+	logOK(r, http.StatusOK)
 }
 
 // handleAdmin serves the admin dashboard page.
@@ -172,6 +211,12 @@ func handleAdmin(w http.ResponseWriter, r *http.Request) {
 
 // handleAdminAbuseReportsPage serves the page for viewing and managing abuse reports.
 func handleAdminAbuseReportsPage(w http.ResponseWriter, r *http.Request) {
+	adminUser := getUserFromContext(r) // Get adminUser here
+	if adminUser == nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not get admin user from context for abuse reports")
+		return
+	}
+
 	if r.Method == http.MethodPost {
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if err := r.ParseForm(); err != nil {
@@ -215,7 +260,7 @@ func handleAdminAbuseReportsPage(w http.ResponseWriter, r *http.Request) {
 
 	// Handle GET request
 	searchQuery := r.URL.Query().Get("q")
-	filter := r.URL.Query().Get("filter")
+	filter := r.URL.Query().Get("filter") // Define filter here
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
 		page = 1
@@ -243,6 +288,14 @@ func handleAdminAbuseReportsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Determine the domain to use for the Users link.
+	// If the adminUser is a super_admin and their domain is empty, use the primary domain.
+	// Otherwise, use the adminUser's domain.
+	domainForUsersLink := adminUser.Domain
+	if adminUser.Role == "super_admin" && domainForUsersLink == "" {
+		domainForUsersLink = config.PrimaryDomain
+	}
+
 	pageVars := adminAbuseReportsPageVars{
 		Reports:     reports,
 		CurrentPage: page,
@@ -253,6 +306,7 @@ func handleAdminAbuseReportsPage(w http.ResponseWriter, r *http.Request) {
 		Filter:      filter,
 		CssSRIHash:  cssSRIHash,
 		CSRFToken:   getOrSetCSRFToken(w, r),
+		Domain:      domainForUsersLink, // Use the determined domain
 	}
 
 	nonce, _ := r.Context().Value(web.NonceContextKey).(string)
@@ -265,62 +319,127 @@ func handleAdminAbuseReportsPage(w http.ResponseWriter, r *http.Request) {
 
 // handleAdminSecurityPage serves the 2FA setup and status page.
 func handleAdminSecurityPage(w http.ResponseWriter, r *http.Request) {
+	adminUser := getUserFromContext(r)
+	if adminUser == nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not get admin user from context")
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := r.ParseForm(); err != nil {
+				logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Security form parse error: "+err.Error())
+				return
+			}
+
+			action := r.FormValue("action")
+			switch action {
+			case "enable-2fa":
+				secret, err := totp.Generate(totp.GenerateOpts{Issuer: r.Host, AccountName: adminUser.Username})
+				if err != nil {
+					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate TOTP secret: "+err.Error())
+					return
+				}
+
+				if err := provisionTOTP(r.Context(), adminUser.ID, secret.Secret()); err != nil {
+					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to provision 2FA: "+err.Error())
+					return
+				}
+			case "verify-2fa":
+				code := r.FormValue("totp_code")
+				if !adminUser.TempTOTPSecret.Valid || !totp.Validate(code, adminUser.TempTOTPSecret.String) {
+					renderAdminSecurityPage(w, r, adminUser, "Invalid verification code.")
+					return
+				}
+				if err := enableTOTP(r.Context(), adminUser.ID, adminUser.TempTOTPSecret.String); err != nil {
+					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to enable 2FA: "+err.Error())
+					return
+				}
+			case "disable-2fa":
+				code := r.FormValue("totp_code")
+				if !adminUser.TOTPSecret.Valid || !totp.Validate(code, adminUser.TOTPSecret.String) {
+					renderAdminSecurityPage(w, r, adminUser, "Invalid verification code.")
+					return
+				}
+
+				if err := disableTOTP(r.Context(), adminUser.ID); err != nil {
+					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to disable 2FA: "+err.Error())
+					return
+				}
+			}
+			http.Redirect(w, r, "/admin/security", http.StatusSeeOther)
+		})
+		csrfProtect(handler)(w, r)
+		return
+	}
+
+	renderAdminSecurityPage(w, r, adminUser, r.URL.Query().Get("error"))
+}
+
+func renderAdminSecurityPage(w http.ResponseWriter, r *http.Request, adminUser *User, errorMsg string) {
 	securityTmpl, ok := templateMap["admin_security"]
 	if !ok {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_security template")
 		return
+ 	}
+ 	// Determine the domain to use for the Users link.
+ 	// If the adminUser is a super_admin and their domain is empty, use the primary domain.
+ 	// Otherwise, use the adminUser's domain.
+ 	domainForUsersLink := adminUser.Domain
+ 	if adminUser.Role == "super_admin" && domainForUsersLink == "" {
+ 		domainForUsersLink = config.PrimaryDomain
 	}
 
 	pageVars := struct {
-		TOTPEnabled bool
-		TOTPSecret  string
-		CssSRIHash  string
+		TOTPEnabled      bool
+		TOTPSecret       string
+		CssSRIHash       string
+		Error            string
+		CSRFToken        string
+		TOTPProvisioning bool
+		Domain           string
 	}{
-		TOTPEnabled: config.Admin.TOTPEnabled,
-		TOTPSecret:  config.Admin.TOTPSecret,
-		CssSRIHash:  cssSRIHash,
+		TOTPEnabled:      adminUser.TOTPEnabled,
+		TOTPSecret:       adminUser.TempTOTPSecret.String, // Show the temp secret for provisioning
+		CssSRIHash:       cssSRIHash,
+		Error:            errorMsg,
+		CSRFToken:        getOrSetCSRFToken(w, r),
+		TOTPProvisioning: adminUser.TempTOTPSecret.Valid,
+		Domain:           domainForUsersLink,
 	}
 
 	if err := securityTmpl.Execute(w, pageVars); err != nil {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_security template: "+err.Error())
 	}
-	logOK(r, http.StatusOK)
 }
 
 // handleAdminSecurityQR generates and serves the QR code for 2FA setup.
 func handleAdminSecurityQR(w http.ResponseWriter, r *http.Request) {
-	if !config.Admin.TOTPEnabled || config.Admin.TOTPSecret == "" {
-		http.Error(w, "2FA is not configured on the server.", http.StatusNotFound)
+	adminUser := getUserFromContext(r)
+	if adminUser == nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not get admin user from context")
 		return
 	}
 
-	// The secret in the config is a Base32 string. We must decode it to raw bytes for the library.
-	secretBytes, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(config.Admin.TOTPSecret)
-	if err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to decode TOTP secret: "+err.Error())
+	// The secret to display is the temporary one during provisioning.
+	if !adminUser.TempTOTPSecret.Valid {
+		http.Error(w, "2FA is not being provisioned for this admin user.", http.StatusNotFound)
 		return
 	}
+	secret := adminUser.TempTOTPSecret.String
 
-	// Generate a TOTP key object from the secret.
-	key, err := totp.Generate(totp.GenerateOpts{
-		Issuer:      config.PrimaryDomain,
-		AccountName: config.Admin.User,
-		Secret:      secretBytes,
-		Algorithm:   otp.AlgorithmSHA1, // Explicitly set the standard algorithm for clarity.
-	})
+	key, err := otp.NewKeyFromURL(fmt.Sprintf("otpauth://totp/%s:%s?secret=%s&issuer=%s", r.Host, adminUser.Username, secret, r.Host))
 	if err != nil {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate TOTP key for QR code: "+err.Error())
 		return
 	}
 
-	// Generate the QR code image and serve it.
 	img, err := key.Image(256, 256)
 	if err != nil {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate QR code image: "+err.Error())
 		return
 	}
 
-	// Encode the image directly to the response writer.
 	w.Header().Set("Content-Type", "image/png")
 	if err := png.Encode(w, img); err != nil {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to encode QR code image: "+err.Error())
@@ -330,16 +449,31 @@ func handleAdminSecurityQR(w http.ResponseWriter, r *http.Request) {
 // handleAdminStatsPage serves the detailed statistics page.
 // It only loads the initial, fast stats. Slower stats are lazy-loaded.
 func handleAdminStatsPage(w http.ResponseWriter, r *http.Request) {
+	adminUser := getUserFromContext(r)
+	if adminUser == nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not get admin user from context for stats page")
+		return
+	}
+
 	statsTmpl, ok := templateMap["admin_stats"]
 	if !ok {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_stats template")
 		return
 	}
 
+	// Determine the domain to use for the Users link.
+	// If the adminUser is a super_admin and their domain is empty, use the primary domain.
+	// Otherwise, use the adminUser's domain.
+	domainForUsersLink := adminUser.Domain
+	if adminUser.Role == "super_admin" && domainForUsersLink == "" {
+		domainForUsersLink = config.PrimaryDomain
+	}
+
 	// Note: TopLinks and CreatorStats are intentionally omitted here.
 	// All stats are now loaded via async requests to their own handlers.
 	pageVars := statsPageVars{
 		CssSRIHash: cssSRIHash,
+		Domain:     domainForUsersLink, // Populate the Domain field with the determined value
 	}
 
 	// Retrieve the nonce from the context, which was set by the CSP middleware.
@@ -694,16 +828,30 @@ func handleAdminDeleteSubdomain(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+	domain := r.URL.Query().Get("domain")
+	if domain == "" {
+		logErrors(w, r, "Missing domain parameter.", http.StatusBadRequest, "Admin edit page requested without domain")
+		return
+	}
+
+	// Security check: Ensure the user has permission for this domain.
+	if user.Role != "super_admin" && user.Domain != domain {
+		logErrors(w, r, "Forbidden", http.StatusForbidden, fmt.Sprintf("User %s does not have permission for domain %s", user.Username, domain))
+		return
+	}
+
 	switch r.Method {
 	case http.MethodGet:
-		domain := r.URL.Query().Get("domain")
-		if domain == "" {
-			logErrors(w, r, "Missing domain parameter.", http.StatusBadRequest, "Admin edit page requested without domain")
-			return
-		}
-
 		// Get the fully resolved config for the domain.
 		subdomainCfg := getSubdomainConfig(domain)
+
+		// Add debug logging for RegistrationEnabled
+		if subdomainCfg.RegistrationEnabled != nil {
+			slogger.Debug("handleAdminEditPage: subdomainCfg.RegistrationEnabled", "domain", domain, "value", *subdomainCfg.RegistrationEnabled)
+		} else {
+			slogger.Debug("handleAdminEditPage: subdomainCfg.RegistrationEnabled", "domain", domain, "value", "nil")
+		}
 
 		// Create a struct holding the true default values for the template to compare against.
 		templateDefaults := config.Defaults
@@ -721,7 +869,24 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 		} else {
 			templateDefaults.AnonymousRateLimit = &AnonymousRateLimitConfig{Enabled: false, Every: "30s"} // Fallback default
 		}
-		templateDefaults.FileUploadsEnabled = config.Defaults.FileUploadsEnabled
+
+		// Explicitly set the effective default for FileUploadsEnabled
+		if config.Defaults.FileUploadsEnabled == nil {
+			defaultFalse := false
+			templateDefaults.FileUploadsEnabled = &defaultFalse
+		} else {
+			fileUploadsEnabledCopy := *config.Defaults.FileUploadsEnabled
+			templateDefaults.FileUploadsEnabled = &fileUploadsEnabledCopy
+		}
+
+		// Explicitly set the effective default for RegistrationEnabled
+		if config.Defaults.RegistrationEnabled == nil {
+			defaultFalse := false
+			templateDefaults.RegistrationEnabled = &defaultFalse
+		} else {
+			registrationEnabledCopy := *config.Defaults.RegistrationEnabled
+			templateDefaults.RegistrationEnabled = &registrationEnabledCopy
+		}
 
 		editTmpl, ok := templateMap["admin_edit"]
 		if !ok {
@@ -738,15 +903,24 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 		const limit = 25 // Show 25 links per page
 		offset := (page - 1) * limit
 
-		totalLinks, err := getLinkCountForDomain(r.Context(), domain, searchQuery)
-		if err != nil {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve link count for domain: "+err.Error())
-			return
+		var totalLinks int
+		var links []Link
+		var err error
+
+		if user.Role == "user" {
+			totalLinks, err = getLinkCountForDomainAndUser(r.Context(), domain, user.ID, searchQuery)
+			if err == nil {
+				links, err = getLinksForDomainAndUser(r.Context(), domain, user.ID, searchQuery, limit, offset)
+			}
+		} else {
+			totalLinks, err = getLinkCountForDomain(r.Context(), domain, searchQuery)
+			if err == nil {
+				links, err = getLinksForDomain(r.Context(), domain, searchQuery, limit, offset)
+			}
 		}
 
-		links, err := getLinksForDomain(r.Context(), domain, searchQuery, limit, offset)
 		if err != nil {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve links for domain: "+err.Error())
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve links: "+err.Error())
 			return
 		}
 
@@ -777,11 +951,6 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 		// Process form submissions for the edit page
 		if err := r.ParseForm(); err != nil {
 			logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Admin edit form parse error: "+err.Error())
-			return
-		}
-		domain := r.URL.Query().Get("domain")
-		if domain == "" {
-			logErrors(w, r, "Missing domain parameter.", http.StatusBadRequest, "Admin edit action submitted without domain")
 			return
 		}
 
@@ -889,6 +1058,17 @@ func handleAdminDeleteStaticLink(w http.ResponseWriter, r *http.Request, domain 
 }
 
 func handleAdminDeleteMultipleDynamicLinks(w http.ResponseWriter, r *http.Request, domain string) {
+	user := getUserFromContext(r)
+	// Security Check: Ensure the user has permission to manage this domain.
+	// Super admins can manage any domain.
+	// Domain admins and moderators can only manage their assigned domain.
+	if user.Role == "domain_admin" || user.Role == "moderator" {
+		if user.Domain != domain {
+			logErrors(w, r, "Forbidden", http.StatusForbidden, fmt.Sprintf("User %s does not have permission to delete links from domain %s", user.Username, domain))
+			return
+		}
+	}
+
 	// r.Form is already parsed by the calling function.
 	linkKeys := r.Form["link_keys"]
 	if len(linkKeys) == 0 {
@@ -899,6 +1079,17 @@ func handleAdminDeleteMultipleDynamicLinks(w http.ResponseWriter, r *http.Reques
 
 	var errorOccurred bool
 	for _, key := range linkKeys {
+		// Security Check: Before deleting, ensure the user has permission for the specific link.
+		// This is an extra layer of defense, especially for the "user" role.
+		if user.Role == "user" {
+			link, err := getLinkDetails(r.Context(), key, domain)
+			if err != nil || link == nil || !link.UserID.Valid || link.UserID.Int64 != user.ID {
+				slogger.Warn("Permission denied for user to delete link during bulk operation", "user", user.Username, "key", key, "domain", domain)
+				errorOccurred = true
+				continue // Skip to the next key
+			}
+		}
+
 		if err := deleteLink(r.Context(), key, domain); err != nil {
 			// Log the error but continue trying to delete the others.
 			slogger.Error("Failed to delete dynamic link during bulk operation", "key", key, "domain", domain, "error", err)
@@ -915,11 +1106,18 @@ func handleAdminDeleteMultipleDynamicLinks(w http.ResponseWriter, r *http.Reques
 }
 
 func handleAdminEditStaticLinkPage(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
 	domain := r.URL.Query().Get("domain")
 	key := r.URL.Query().Get("key")
 
 	if domain == "" || key == "" {
 		logErrors(w, r, "Missing domain or key parameter.", http.StatusBadRequest, "Admin edit static link page requested without domain or key")
+		return
+	}
+
+	// Security check: Ensure the user has permission for this domain.
+	if user.Role != "super_admin" && user.Domain != domain {
+		logErrors(w, r, "Forbidden", http.StatusForbidden, fmt.Sprintf("User %s does not have permission for domain %s", user.Username, domain))
 		return
 	}
 
@@ -1005,6 +1203,7 @@ func handleAdminEditLinkPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAdminEditLinkPageGET(w http.ResponseWriter, r *http.Request, domain, key string) {
+	user := getUserFromContext(r)
 	// Retrieve the link's details for editing.
 	link, err := getLinkDetails(r.Context(), key, domain)
 	if err != nil {
@@ -1013,6 +1212,26 @@ func handleAdminEditLinkPageGET(w http.ResponseWriter, r *http.Request, domain, 
 	}
 	if link == nil {
 		logErrors(w, r, "Link not found.", http.StatusNotFound, "Admin tried to edit non-existent link: "+key)
+		return
+	}
+
+	// Security Check: Ensure user has permission to edit this specific link.
+	hasPermission := false
+	switch user.Role {
+	case "super_admin":
+		hasPermission = true
+	case "domain_admin", "moderator":
+		if user.Domain == link.Domain {
+			hasPermission = true
+		}
+	case "user":
+		if link.UserID.Valid && link.UserID.Int64 == user.ID {
+			hasPermission = true
+		}
+	}
+
+	if !hasPermission {
+		logErrors(w, r, "Forbidden", http.StatusForbidden, fmt.Sprintf("User %s does not have permission to edit link %s on domain %s", user.Username, key, domain))
 		return
 	}
 
@@ -1055,6 +1274,7 @@ func handleAdminEditLinkPageGET(w http.ResponseWriter, r *http.Request, domain, 
 }
 
 func handleAdminEditLinkPagePOST(w http.ResponseWriter, r *http.Request, domain, key string) {
+	user := getUserFromContext(r)
 	// Get the existing link to ensure it exists and to have its current state.
 	link, err := getLinkDetails(r.Context(), key, domain)
 	if err != nil {
@@ -1063,6 +1283,26 @@ func handleAdminEditLinkPagePOST(w http.ResponseWriter, r *http.Request, domain,
 	}
 	if link == nil {
 		logErrors(w, r, "Link not found.", http.StatusNotFound, "Admin tried to update non-existent link: "+key)
+		return
+	}
+
+	// Security Check: Ensure user has permission to edit this specific link.
+	hasPermission := false
+	switch user.Role {
+	case "super_admin":
+		hasPermission = true
+	case "domain_admin", "moderator":
+		if user.Domain == link.Domain {
+			hasPermission = true
+		}
+	case "user":
+		if link.UserID.Valid && link.UserID.Int64 == user.ID {
+			hasPermission = true
+		}
+	}
+
+	if !hasPermission {
+		logErrors(w, r, "Forbidden", http.StatusForbidden, fmt.Sprintf("User %s does not have permission to edit link %s on domain %s", user.Username, key, domain))
 		return
 	}
 
@@ -1141,9 +1381,13 @@ func handleAdminEditLinkPagePOST(w http.ResponseWriter, r *http.Request, domain,
 	}
 	// If neither condition is met, the password remains unchanged.
 
-	// Update description.
-	link.Description = r.FormValue("description")
-
+	// Update description.=
+	description := r.FormValue("description")
+	if description == "" {
+		link.Description = sql.NullString{Valid: false}
+	} else {
+		link.Description = sql.NullString{String: description, Valid: true}
+	}
 	// Persist the changes to the database.
 	if err := updateLink(r.Context(), *link); err != nil {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to update link in database: "+err.Error())
@@ -1154,98 +1398,6 @@ func handleAdminEditLinkPagePOST(w http.ResponseWriter, r *http.Request, domain,
 	http.Redirect(w, r, "/admin/edit?domain="+domain, http.StatusSeeOther)
 }
 
-// handleAdminAPIKeysPage serves the API key management page and handles key generation/deletion.
-func handleAdminAPIKeysPage(w http.ResponseWriter, r *http.Request) {
-	userID, ok := r.Context().Value(userContextKey).(string)
-	if !ok {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not get user ID from context for API key management")
-		return
-	}
-
-	if r.Method == http.MethodPost {
-		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if err := r.ParseForm(); err != nil {
-				logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "API key management form parse error: "+err.Error())
-				return
-			}
-
-			switch r.FormValue("action") {
-			case "generate":
-				description := r.FormValue("description")
-				newKey, err := createAPIKey(r.Context(), userID, description)
-				if err != nil {
-					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate new API key: "+err.Error())
-					return
-				}
-				// Redirect with the new key as a query param so it can be displayed.
-				http.Redirect(w, r, "/admin/api-keys?newKey="+url.QueryEscape(newKey.Token), http.StatusSeeOther)
-			case "delete":
-				tokenToDelete := r.FormValue("token")
-				if tokenToDelete == "" {
-					logErrors(w, r, "Token cannot be empty.", http.StatusBadRequest, "API key deletion request missing token")
-					return
-				}
-				if err := deleteAPIKey(r.Context(), tokenToDelete); err != nil {
-					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete API key: "+err.Error())
-					return
-				}
-				http.Redirect(w, r, "/admin/api-keys", http.StatusSeeOther)
-			default:
-				logErrors(w, r, "Invalid action.", http.StatusBadRequest, "Unknown API key management action")
-			}
-		})
-		csrfProtect(handler)(w, r)
-		return
-	}
-
-	// Handle GET request.
-	searchQuery := r.URL.Query().Get("q")
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
-		page = 1
-	}
-	const limit = 10
-	offset := (page - 1) * limit
-
-	totalKeys, err := getAPIKeyCountForUser(r.Context(), userID, searchQuery)
-	if err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve API key count: "+err.Error())
-		return
-	}
-
-	keys, err := getAPIKeysForUser(r.Context(), userID, searchQuery, limit, offset)
-	if err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve API keys: "+err.Error())
-		return
-	}
-
-	totalPages := int(math.Ceil(float64(totalKeys) / float64(limit)))
-
-	apiKeysTmpl, ok := templateMap["admin_api_keys"]
-	if !ok {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_api_keys template")
-		return
-	}
-
-	pageVars := adminAPIKeysPageVars{
-		APIKeys:     keys,
-		NewKey:      r.URL.Query().Get("newKey"),
-		CurrentPage: page,
-		TotalPages:  totalPages,
-		HasPrev:     page > 1,
-		HasNext:     page < totalPages,
-		SearchQuery: searchQuery,
-		CSRFToken:   getOrSetCSRFToken(w, r),
-		// SRI hashes are still needed for the page itself
-		AdminJsSRIHash: adminJsSRIHash,
-		CssSRIHash:     cssSRIHash,
-	}
-
-	if err := apiKeysTmpl.Execute(w, pageVars); err != nil {
-		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_api_keys template: "+err.Error())
-	}
-	logOK(r, http.StatusOK)
-}
 func parseSubdomainForm(r *http.Request) (SubdomainConfig, error) {
 	// This helper function parses form values and returns a SubdomainConfig.
 	// It's used by both create and update handlers.
@@ -1304,6 +1456,10 @@ func parseSubdomainForm(r *http.Request) (SubdomainConfig, error) {
 	fileUploadsEnabled := r.FormValue("FileUploadsEnabled") == "on"
 	newConfig.FileUploadsEnabled = &fileUploadsEnabled
 
+	// RegistrationEnabled is a boolean checkbox.
+	registrationEnabled := r.FormValue("RegistrationEnabled") == "on"
+	newConfig.RegistrationEnabled = &registrationEnabled
+
 	// AnonymousRateLimit.Enabled is a boolean checkbox.
 	anonymousRateLimitEnabled := r.FormValue("AnonymousRateLimitEnabled") == "on"
 	anonymousRateLimitEvery := r.FormValue("AnonymousRateLimitEvery")
@@ -1349,4 +1505,431 @@ func parseSubdomainForm(r *http.Request) (SubdomainConfig, error) {
 	}
 
 	return newConfig, nil
+}
+
+// handleAdminUsersPage serves the user management page for a domain.
+func handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+	domain := r.URL.Query().Get("domain")
+
+	// If the user is a domain admin, they can only manage their own domain.
+	if user.Role == "domain_admin" {
+		domain = user.Domain
+	}
+
+	if domain == "" {
+		logErrors(w, r, "Missing domain parameter.", http.StatusBadRequest, "Admin users page requested without domain")
+		return
+	}
+
+	// Security check: Super admin can manage any domain, domain admin only their own.
+	if user.Role != "super_admin" && user.Domain != domain {
+		logErrors(w, r, "Forbidden", http.StatusForbidden, fmt.Sprintf("User %s does not have permission for domain %s", user.Username, domain))
+		return
+	}
+
+	searchQuery := r.URL.Query().Get("q")
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	const limit = 25
+	offset := (page - 1) * limit
+
+	totalUsers, err := getUserCountForDomain(r.Context(), domain, searchQuery)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve user count for domain: "+err.Error())
+		return
+	}
+
+	users, err := getUsersForDomain(r.Context(), domain, searchQuery, limit, offset)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve users for domain: "+err.Error())
+		return
+	}
+
+	totalPages := int(math.Ceil(float64(totalUsers) / float64(limit)))
+
+	tmpl, ok := templateMap["admin_users"]
+	if !ok {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_users template")
+		return
+	}
+
+	type adminUsersPageVars struct {
+		Domain      string
+		Users       []User
+		CurrentPage int
+		TotalPages  int
+		HasPrev     bool
+		HasNext     bool
+		SearchQuery string
+		CssSRIHash  string
+		CSRFToken   string
+		Error       string
+	}
+
+	pageVars := adminUsersPageVars{
+		Domain:      domain,
+		Users:       users,
+		CurrentPage: page,
+		TotalPages:  totalPages,
+		HasPrev:     page > 1,
+		HasNext:     page < totalPages,
+		SearchQuery: searchQuery,
+		CssSRIHash:  cssSRIHash,
+		CSRFToken:   getOrSetCSRFToken(w, r),
+		Error:       r.URL.Query().Get("error"),
+	}
+
+	if err := tmpl.Execute(w, pageVars); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_users template: "+err.Error())
+	}
+	logOK(r, http.StatusOK)
+}
+
+// handleAdminCreateUser handles the creation of a new user in a domain.
+func handleAdminCreateUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	user := getUserFromContext(r)
+	domain := r.FormValue("domain")
+
+	// Security check
+	if user.Role != "super_admin" && user.Domain != domain {
+		logErrors(w, r, "Forbidden", http.StatusForbidden, "User does not have permission to create users in this domain")
+		return
+	}
+
+	username := r.FormValue("username")
+	password := r.FormValue("password")
+	role := r.FormValue("role")
+
+	if username == "" || password == "" || role == "" {
+		http.Redirect(w, r, fmt.Sprintf("/admin/users?domain=%s&error=Username, password, and role are required", url.QueryEscape(domain)), http.StatusSeeOther)
+		return
+	}
+
+	// Domain admins can only create users and moderators
+	if user.Role == "domain_admin" && (role != "user" && role != "moderator") {
+		http.Redirect(w, r, fmt.Sprintf("/admin/users?domain=%s&error=Invalid role", url.QueryEscape(domain)), http.StatusSeeOther)
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to hash password: "+err.Error())
+		return
+	}
+
+	newUser := &User{
+		Username: username,
+		Password: string(hashedPassword),
+		Role:     role,
+		Domain:   domain,
+	}
+
+	if err := createUserInDomain(r.Context(), newUser); err != nil {
+		if strings.Contains(err.Error(), "violates unique constraint") {
+			http.Redirect(w, r, fmt.Sprintf("/admin/users?domain=%s&error=Username already exists", url.QueryEscape(domain)), http.StatusSeeOther)
+		} else {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to create user: "+err.Error())
+		}
+		return
+	}
+
+	http.Redirect(w, r, "/admin/users?domain="+url.QueryEscape(domain), http.StatusSeeOther)
+}
+
+// handleAdminUpdateUser handles updating a user's role.
+func handleAdminUpdateUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	adminUser := getUserFromContext(r)
+	domain := r.FormValue("domain")
+	userID, err := strconv.ParseInt(r.FormValue("user_id"), 10, 64)
+	if err != nil {
+		logErrors(w, r, "Invalid user ID.", http.StatusBadRequest, "Invalid user_id for update")
+		return
+	}
+	newRole := r.FormValue("role")
+
+	// Security check
+	if adminUser.Role != "super_admin" && adminUser.Domain != domain {
+		logErrors(w, r, "Forbidden", http.StatusForbidden, "User does not have permission to update users in this domain")
+		return
+	}
+
+	// Domain admins can only assign 'user' and 'moderator' roles.
+	if adminUser.Role == "domain_admin" && (newRole != "user" && newRole != "moderator") {
+		http.Redirect(w, r, fmt.Sprintf("/admin/users?domain=%s&error=Invalid role", url.QueryEscape(domain)), http.StatusSeeOther)
+		return
+	}
+
+	userToUpdate, err := getUserByID(r.Context(), userID)
+	if err != nil || userToUpdate == nil {
+		logErrors(w, r, "User not found.", http.StatusNotFound, "User to update not found")
+		return
+	}
+
+	// Ensure the user being updated belongs to the correct domain.
+	if userToUpdate.Domain != domain {
+		logErrors(w, r, "Forbidden", http.StatusForbidden, "User to update does not belong to this domain")
+		return
+	}
+
+	userToUpdate.Role = newRole
+	if err := updateUser(r.Context(), userToUpdate); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to update user: "+err.Error())
+		return
+	}
+
+	http.Redirect(w, r, "/admin/users?domain="+url.QueryEscape(domain), http.StatusSeeOther)
+}
+
+// handleAdminDeleteUser handles deleting a user.
+func handleAdminDeleteUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	adminUser := getUserFromContext(r)
+	domain := r.FormValue("domain")
+	userID, err := strconv.ParseInt(r.FormValue("user_id"), 10, 64)
+	if err != nil {
+		logErrors(w, r, "Invalid user ID.", http.StatusBadRequest, "Invalid user_id for deletion")
+		return
+	}
+
+	// Security check
+	if adminUser.Role != "super_admin" && adminUser.Domain != domain {
+		logErrors(w, r, "Forbidden", http.StatusForbidden, "User does not have permission to delete users in this domain")
+		return
+	}
+
+	userToDelete, err := getUserByID(r.Context(), userID)
+	if err != nil || userToDelete == nil {
+		logErrors(w, r, "User not found.", http.StatusNotFound, "User to delete not found")
+		return
+	}
+
+	// Ensure the user being deleted belongs to the correct domain.
+	if userToDelete.Domain != domain {
+		logErrors(w, r, "Forbidden", http.StatusForbidden, "User to delete does not belong to this domain")
+		return
+	}
+
+	if err := deleteUserByID(r.Context(), userID); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete user: "+err.Error())
+		return
+	}
+
+	http.Redirect(w, r, "/admin/users?domain="+url.QueryEscape(domain), http.StatusSeeOther)
+}
+
+// handleAdminEditUserPage serves the page for editing a user's details.
+func handleAdminEditUserPage(w http.ResponseWriter, r *http.Request) {
+	adminUser := getUserFromContext(r)
+	domain := r.URL.Query().Get("domain")
+	userID, err := strconv.ParseInt(r.URL.Query().Get("user_id"), 10, 64)
+	if err != nil {
+		logErrors(w, r, "Invalid user ID.", http.StatusBadRequest, "Invalid user_id for edit")
+		return
+	}
+
+	// Security check: Super admin can manage any domain, domain admin only their own.
+	if adminUser.Role != "super_admin" && adminUser.Domain != domain {
+		logErrors(w, r, "Forbidden", http.StatusForbidden, fmt.Sprintf("User %s does not have permission for domain %s", adminUser.Username, domain))
+		return
+	}
+
+	userToEdit, err := getUserByID(r.Context(), userID)
+	if err != nil || userToEdit == nil {
+		logErrors(w, r, "User not found.", http.StatusNotFound, "User to edit not found")
+		return
+	}
+
+	// Ensure the user being edited belongs to the correct domain.
+	if userToEdit.Domain != domain {
+		logErrors(w, r, "Forbidden", http.StatusForbidden, "User to edit does not belong to this domain")
+		return
+	}
+
+	tmpl, ok := templateMap["admin_edit_user"]
+	if !ok {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_edit_user template")
+		return
+	}
+
+	type adminEditUserPageVars struct {
+		User       *User
+		Domain     string
+		AdminRole  string
+		Error      string
+		CssSRIHash string
+		CSRFToken  string
+	}
+
+	pageVars := adminEditUserPageVars{
+		User:       userToEdit,
+		Domain:     domain,
+		AdminRole:  adminUser.Role,
+		Error:      r.URL.Query().Get("error"),
+		CssSRIHash: cssSRIHash,
+		CSRFToken:  getOrSetCSRFToken(w, r),
+	}
+
+	if err := tmpl.Execute(w, pageVars); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_edit_user template: "+err.Error())
+	}
+	logOK(r, http.StatusOK)
+}
+
+// handleAdminAPIKeysPage serves the admin API key management page.
+func handleAdminAPIKeysPage(w http.ResponseWriter, r *http.Request) {
+	adminUser := getUserFromContext(r)
+	if adminUser == nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not get admin user from context for API key management")
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := r.ParseForm(); err != nil {
+				logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Admin API key management form parse error: "+err.Error())
+				return
+			}
+
+			action := r.FormValue("action")
+			switch action {
+			case "generate":
+				userIDStr := r.FormValue("user_id")
+				description := r.FormValue("description")
+
+				var userID int64
+				var err error
+
+				var nullDescription sql.NullString
+				if description != "" {
+					nullDescription = sql.NullString{String: description, Valid: true}
+				}
+
+				if userIDStr == "" {
+					// If user_id is not provided, default to the current admin's ID
+					userID = adminUser.ID
+				} else {
+					// Otherwise, parse the provided user_id
+					userID, err = strconv.ParseInt(userIDStr, 10, 64)
+					if err != nil {
+						logErrors(w, r, "Invalid User ID.", http.StatusBadRequest, "Invalid user_id for API key generation")
+						return
+					}
+				}
+
+				// Ensure the user exists (only if a user_id was explicitly provided and parsed)
+				// If userID was defaulted to adminUser.ID, we already know adminUser exists.
+				if userIDStr != "" { // Only check if user_id was explicitly provided
+					targetUser, err := getUserByID(r.Context(), userID)
+					if err != nil || targetUser == nil {
+						logErrors(w, r, "User not found.", http.StatusNotFound, fmt.Sprintf("User with ID %d not found for API key generation", userID))
+						return
+					}
+				}
+
+				newKey, err := createAPIKey(r.Context(), userID, nullDescription)
+				if err != nil {
+					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate new API key: "+err.Error())
+					return
+				}
+				http.Redirect(w, r, "/admin/api-keys?newKey="+url.QueryEscape(newKey.Token), http.StatusSeeOther)
+			case "delete":
+				tokenToDelete := r.FormValue("token")
+				if tokenToDelete == "" {
+					logErrors(w, r, "Token cannot be empty.", http.StatusBadRequest, "API key deletion request missing token")
+					return
+				}
+
+				// Admin can delete any key, no user ID check needed here.
+				if err := deleteAPIKey(r.Context(), tokenToDelete); err != nil {
+					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to delete API key: "+err.Error())
+					return
+				}
+				http.Redirect(w, r, "/admin/api-keys", http.StatusSeeOther)
+			default:
+				logErrors(w, r, "Invalid action.", http.StatusBadRequest, "Unknown API key management action")
+			}
+		})
+		csrfProtect(handler)(w, r)
+		return
+	}
+
+	// Handle GET request
+	searchQuery := r.URL.Query().Get("q")
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	const limit = 25 // Display more keys for admin view
+	offset := (page - 1) * limit
+
+	totalKeys, err := getAPIKeyCount(r.Context(), searchQuery) // This function needs to be implemented to get count for all keys
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve API key count: "+err.Error())
+		return
+	}
+
+	apiKeys, err := getAllAPIKeys(r.Context(), searchQuery, limit, offset) // This function needs to be implemented to get all keys
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to retrieve API keys: "+err.Error())
+		return
+	}
+
+	// Fetch usernames for each API key
+	users := make([]User, len(apiKeys))
+	for i, key := range apiKeys {
+		user, err := getUserByID(r.Context(), key.UserID)
+		if err != nil {
+			slogger.Error("Failed to retrieve user for API key", "userID", key.UserID, "error", err)
+			// Continue, but the username for this key will be empty
+			users[i] = User{Username: "Unknown"}
+		} else {
+			users[i] = *user
+		}
+	}
+
+	totalPages := int(math.Ceil(float64(totalKeys) / float64(limit)))
+
+	apiKeysTmpl, ok := templateMap["admin_api_keys"] // This template needs to be created
+	if !ok {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load admin_api_keys template")
+		return
+	}
+
+	pageVars := adminAPIKeysPageVars{
+		APIKeys:              apiKeys,
+		Users:                users,
+		NewKey:               r.URL.Query().Get("newKey"),
+		CurrentPage:          page,
+		TotalPages:           totalPages,
+		HasPrev:              page > 1,
+		HasNext:              page < totalPages,
+		SearchQuery:          searchQuery,
+		CSRFToken:            getOrSetCSRFToken(w, r),
+		AdminJsSRIHash:       adminJsSRIHash,
+		CssSRIHash:           cssSRIHash,
+		Error:                r.URL.Query().Get("error"),
+		CurrentRequestDomain: r.Host,
+	}
+
+	if err := apiKeysTmpl.Execute(w, pageVars); err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute admin_api_keys template: "+err.Error())
+	}
+	logOK(r, http.StatusOK)
 }

@@ -46,6 +46,10 @@ func loadConfig() (err error) {
 			defaultFileUploadsEnabled := false
 			config.Defaults.FileUploadsEnabled = &defaultFileUploadsEnabled // Default to false
 		}
+		if config.Defaults.RegistrationEnabled == nil {
+			defaultRegistrationEnabled := false
+			config.Defaults.RegistrationEnabled = &defaultRegistrationEnabled // Default to false
+		}
 
 		// Allow environment variables to override file settings.
 		overrideConfigWithEnv()

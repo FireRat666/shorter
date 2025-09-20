@@ -9,21 +9,17 @@
 <body>
     <div class="content">
         <div class="header">
+            <img src="/logo.png">
             <h1>Admin Panel</h1>
-            <a href="/admin/logout" class="logout-button">Logout</a>
         </div>
-        <div class="tos">
-            <h2>Site-Wide Statistics <a href="/admin/stats" class="stats-link">(View Detailed Stats)</a></h2>
-            <div class="stats-container">
-                <div class="stat-box">
-                    <span class="stat-value">{{.TotalLinks}}</span>
-                    <span class="stat-label">Active Links</span>
-                </div>
-                <div class="stat-box">
-                    <span class="stat-value">{{.TotalClicks}}</span>
-                    <span class="stat-label">Total Clicks</span>
-                </div>
-            </div>
+        <div class="header-links">
+            <a href="/admin/" class="button button-yellow">Dashboard</a>
+            <a href="/admin/users?domain={{.PrimaryDomain}}" class="button">Users</a>
+            <a href="/admin/api-keys" class="button">API Keys</a>
+			<a href="/admin/stats" class="button">Statistics</a>
+			<a href="/admin/abuse-reports" class="button">Abuse Reports</a>
+			<a href="/admin/security" class="button">Account Settings</a>
+            <a href="/logout" class="button button-red">Logout</a>
         </div>
         <div class="tos">
             <h2>Primary Domain</h2>
@@ -42,7 +38,7 @@
                             <td>{{.PrimaryDomain}} <small>(Default Settings)</small></td>
                             <td>{{.PrimaryDomainConfig.LinkLen1Display}}</td>
                             <td>{{len .PrimaryDomainConfig.StaticLinks}}</td>
-                            <td><a href="/admin/edit?domain={{.PrimaryDomain}}" class="edit-button">Configure</a></td>
+                            <td><a href="/admin/edit?domain={{.PrimaryDomain}}" class="button">Configure</a></td>
                         </tr>
                     </tbody>
                 </table>
@@ -67,12 +63,12 @@
                             <td>{{$domain}}</td>
                             <td>{{$config.LinkLen1Display}}</td>
                             <td>{{len $config.StaticLinks}}</td>
-                            <td><a href="/admin/edit?domain={{$domain}}" class="edit-button">Edit</a></td>
+                            <td><a href="/admin/edit?domain={{$domain}}" class="button">Edit</a></td>
                             <td>
                                 <form method="POST" action="/admin/">
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="subdomain" value="{{$domain}}">
-                                    <input type="submit" value="Delete" class="delete-button" data-confirm="Are you sure you want to delete this subdomain and all of its links? This action cannot be undone." {{if eq $domain $.PrimaryDomain}}disabled{{end}}>
+                                    <input type="submit" value="Delete" class="button button-red" data-confirm="Are you sure you want to delete this subdomain and all of its links? This action cannot be undone." {{if eq $domain $.PrimaryDomain}}disabled{{end}}>
                                 </form>
                             </td>
                         </tr>
@@ -82,18 +78,6 @@
             {{else}}
                 <p>No subdomains are currently configured.</p>
             {{end}}
-        </div>
-        <div class="tos">
-            <h2>API Management</h2>
-            <p>Manage API keys for programmatic access. <a href="/admin/api-keys">Go to API Key Management</a></p>
-        </div>
-        <div class="tos">
-            <h2>Abuse Reports</h2>
-            <p>Review and manage user-submitted abuse reports. <a href="/admin/abuse-reports">Go to Abuse Reports</a></p>
-        </div>
-        <div class="tos">
-            <h2>Security Settings</h2>
-            <p>Configure Two-Factor Authentication (2FA) for your account. <a href="/admin/security">Go to Security Settings</a></p>
         </div>
         <div class="tos">
             <h2>Create New Subdomain</h2>

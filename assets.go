@@ -40,6 +40,9 @@ var defaultErrorHTML string
 //go:embed embedded/admin.default.tmpl
 var defaultAdminHTML string
 
+//go:embed embedded/admin_login.default.tmpl
+var defaultAdminLoginHTML string
+
 //go:embed embedded/admin_edit.default.tmpl
 var defaultAdminEditHTML string
 
@@ -49,17 +52,26 @@ var defaultAdminEditStaticLinkHTML string
 //go:embed embedded/admin_edit_link.default.tmpl
 var defaultAdminEditLinkHTML string
 
+//go:embed embedded/user_edit_link.default.tmpl
+var defaultUserEditLinkHTML string
+
 //go:embed embedded/admin_stats.default.tmpl
 var defaultAdminStatsHTML string
 
 //go:embed embedded/login.default.tmpl
 var defaultLoginHTML string
 
+//go:embed embedded/register.default.tmpl
+var defaultRegisterHTML string
+
 //go:embed embedded/login_2fa.default.tmpl
 var defaultLogin2FAHTML string
 
 //go:embed embedded/admin_api_keys.default.tmpl
 var defaultAdminAPIKeysHTML string
+
+//go:embed embedded/user_api_keys.default.tmpl
+var defaultUserAPIKeysHTML string
 
 //go:embed embedded/password_prompt.default.tmpl
 var defaultPasswordPromptHTML string
@@ -72,6 +84,21 @@ var defaultAdminAbuseReportsHTML string
 
 //go:embed embedded/admin_security.default.tmpl
 var defaultAdminSecurityHTML string
+
+//go:embed embedded/user_security.default.tmpl
+var defaultUserSecurityHTML string
+
+//go:embed embedded/user_dashboard.default.tmpl
+var defaultUserDashboardHTML string
+
+//go:embed embedded/moderator_dashboard.default.tmpl
+var defaultModeratorDashboardHTML string
+
+//go:embed embedded/admin_users.default.tmpl
+var defaultAdminUsersHTML string
+
+//go:embed embedded/admin_edit_user.default.tmpl
+var defaultAdminEditUserHTML string
 
 //go:embed embedded/admin_stats_creator_stats.partial.tmpl
 var defaultAdminStatsCreatorStatsPartialHTML string
@@ -116,15 +143,24 @@ func initTemplates() error {
 	loadTemplate("show_redirect", defaultShowRedirectHTML, funcMap)
 	loadTemplate("showText", defaultShowTextHTML, funcMap)
 	loadTemplate("admin", defaultAdminHTML, funcMap)
+	loadTemplate("admin_login", defaultAdminLoginHTML, funcMap)
 	loadTemplate("admin_edit", defaultAdminEditHTML, funcMap)
 	loadTemplate("admin_edit_static_link", defaultAdminEditStaticLinkHTML, funcMap)
 	loadTemplate("admin_edit_link", defaultAdminEditLinkHTML, funcMap)
+	loadTemplate("user_edit_link", defaultUserEditLinkHTML, funcMap)
 	loadTemplate("error", defaultErrorHTML, funcMap)
 	loadTemplate("login", defaultLoginHTML, funcMap)
+	loadTemplate("register", defaultRegisterHTML, funcMap)
 	loadTemplate("login_2fa", defaultLogin2FAHTML, funcMap)
 	loadTemplate("admin_abuse_reports", defaultAdminAbuseReportsHTML, funcMap)
 	loadTemplate("admin_security", defaultAdminSecurityHTML, funcMap)
 	loadTemplate("admin_api_keys", defaultAdminAPIKeysHTML, funcMap)
+	loadTemplate("user_security", defaultUserSecurityHTML, funcMap)
+	loadTemplate("user_dashboard", defaultUserDashboardHTML, funcMap)
+	loadTemplate("moderator_dashboard", defaultModeratorDashboardHTML, funcMap)
+	loadTemplate("admin_users", defaultAdminUsersHTML, funcMap)
+	loadTemplate("admin_edit_user", defaultAdminEditUserHTML, funcMap)
+	loadTemplate("user_api_keys", defaultUserAPIKeysHTML, funcMap)
 	loadTemplate("password_prompt", defaultPasswordPromptHTML, funcMap)
 	loadTemplate("admin_stats", defaultAdminStatsHTML, funcMap)
 	loadTemplate("admin_stats_top_links.partial", defaultAdminStatsTopLinksPartialHTML, funcMap)

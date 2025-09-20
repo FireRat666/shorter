@@ -90,34 +90,35 @@ type APIRateLimitConfig struct {
 
 // RateLimitXYConfig holds settings for X actions in Y time rate limiting.
 type RateLimitXYConfig struct {
-	Enabled bool   `yaml:"Enabled"`
+	Enabled bool   `yaml:"Enabled"`	
 	X       int    `yaml:"X"` // How many actions
 	Y       string `yaml:"Y"` // In what time frame
 }
 
 // SubdomainConfig holds settings that can be applied globally or per-subdomain.
 type SubdomainConfig struct {
-	LinkLen1           int                       `yaml:"LinkLen1,omitempty"`
-	LinkLen2           int                       `yaml:"LinkLen2,omitempty"`
-	LinkLen3           int                       `yaml:"LinkLen3,omitempty"`
-	MaxKeyLen          int                       `yaml:"MaxKeyLen,omitempty"`
-	MaxRequestSize     int64                     `yaml:"MaxRequestSize,omitempty"`
-	MaxTextSize        int                       `yaml:"MaxTextSize,omitempty"`
-	MinSizeToGzip      int                       `yaml:"MinSizeToGzip,omitempty"`
-	FileUploadsEnabled *bool                     `yaml:"FileUploadsEnabled,omitempty"`
-	AnonymousRateLimit *AnonymousRateLimitConfig `yaml:"AnonymousRateLimit,omitempty"`
-	RateLimit1         *RateLimitXYConfig        `yaml:"RateLimit1,omitempty"`
-	RateLimit2         *RateLimitXYConfig        `yaml:"RateLimit2,omitempty"`
-	LinkLen1Timeout    string                    `yaml:"LinkLen1Timeout,omitempty"`
-	LinkLen1Display    string                    `yaml:"LinkLen1Display,omitempty"`
-	LinkLen2Timeout    string                    `yaml:"LinkLen2Timeout,omitempty"`
-	LinkLen2Display    string                    `yaml:"LinkLen2Display,omitempty"`
-	LinkLen3Timeout    string                    `yaml:"LinkLen3Timeout,omitempty"`
-	LinkLen3Display    string                    `yaml:"LinkLen3Display,omitempty"`
-	CustomTimeout      string                    `yaml:"CustomTimeout,omitempty"`
-	CustomDisplay      string                    `yaml:"CustomDisplay,omitempty"`
-	LinkAccessMaxNr    int                       `yaml:"LinkAccessMaxNr,omitempty"`
-	StaticLinks        map[string]string         `yaml:"StaticLinks,omitempty"`
+	LinkLen1            int                       `yaml:"LinkLen1,omitempty"`
+	LinkLen2            int                       `yaml:"LinkLen2,omitempty"`
+	LinkLen3            int                       `yaml:"LinkLen3,omitempty"`
+	MaxKeyLen           int                       `yaml:"MaxKeyLen,omitempty"`
+	MaxRequestSize      int64                     `yaml:"MaxRequestSize,omitempty"`
+	MaxTextSize         int                       `yaml:"MaxTextSize,omitempty"`
+	MinSizeToGzip       int                       `yaml:"MinSizeToGzip,omitempty"`
+	FileUploadsEnabled  *bool                     `yaml:"FileUploadsEnabled,omitempty"`
+	RegistrationEnabled *bool                     `yaml:"RegistrationEnabled,omitempty"`
+	AnonymousRateLimit  *AnonymousRateLimitConfig `yaml:"AnonymousRateLimit,omitempty"`
+	RateLimit1          *RateLimitXYConfig        `yaml:"RateLimit1,omitempty"`
+	RateLimit2          *RateLimitXYConfig        `yaml:"RateLimit2,omitempty"`
+	LinkLen1Timeout     string                    `yaml:"LinkLen1Timeout,omitempty"`
+	LinkLen1Display     string                    `yaml:"LinkLen1Display,omitempty"`
+	LinkLen2Timeout     string                    `yaml:"LinkLen2Timeout,omitempty"`
+	LinkLen2Display     string                    `yaml:"LinkLen2Display,omitempty"`
+	LinkLen3Timeout     string                    `yaml:"LinkLen3Timeout,omitempty"`
+	LinkLen3Display     string                    `yaml:"LinkLen3Display,omitempty"`
+	CustomTimeout       string                    `yaml:"CustomTimeout,omitempty"`
+	CustomDisplay       string                    `yaml:"CustomDisplay,omitempty"`
+	LinkAccessMaxNr     int                       `yaml:"LinkAccessMaxNr,omitempty"`
+	StaticLinks         map[string]string         `yaml:"StaticLinks,omitempty"`
 }
 
 // Link represents a shortened link record in the database.
@@ -129,27 +130,45 @@ type Link struct {
 	IsCompressed bool
 	PasswordHash sql.NullString
 	CreatedBy    sql.NullString // UserID of the creator
+	UserID       sql.NullInt64  // Foreign key to the User table
+	Username     sql.NullString
 	TimesAllowed int
 	TimesUsed    int
 	ExpiresAt    time.Time
 	CreatedAt    time.Time
-	Description  string
+	Description  sql.NullString
 }
 
-// Session represents a user's login session in the database.
-type Session struct {
+// User represents a user in the database.
+type User struct {
+	ID             int64
+	Username       string
+	Password       string
+	Role           string
+	Domain         string
+	TOTPSecret     sql.NullString
+	TempTOTPSecret sql.NullString
+	TOTPEnabled    bool
+	CreatedAt      time.Time
+}
+
+// UserSession represents a user's login session in the database.
+type UserSession struct {
 	Token     string
-	UserID    string
+	UserID    int64
 	CSRFToken string
 	ExpiresAt time.Time
 }
 
-// APIKey represents a user's API key in the database.
-type APIKey struct {
+// UserAPIKey represents a user's API key in the database.
+type UserAPIKey struct {
 	Token       string
-	UserID      string
-	Description string
+	UserID      int64
+	Description sql.NullString
 	CreatedAt   time.Time
+	// LastUsedAt  *time.Time // Not currently stored in DB, but good for future
+	// IsActive    bool       // Not currently stored in DB, but good for future
+	Username string // Joined from users table for display purposes
 }
 
 type linkCreatedPageVars struct {
@@ -237,18 +256,19 @@ type AbuseReport struct {
 
 // IndexPageVars holds the data needed to render the index page template.
 type IndexPageVars struct {
-	CssSRIHash         string
-	IndexJsSRIHash     string
-	LinkLen1Display    string
-	LinkLen2Display    string
-	LinkLen3Display    string
-	CustomDisplay      string
-	LinkAccessMaxNr    int
-	MaxURLSize         int
-	FileUploadsEnabled bool
-	MaxTextSize        int
-	MaxFileSize        string
-	CSRFToken          string
+	CssSRIHash          string
+	IndexJsSRIHash      string
+	LinkLen1Display     string
+	LinkLen2Display     string
+	LinkLen3Display     string
+	CustomDisplay       string
+	LinkAccessMaxNr     int
+	MaxURLSize          int
+	FileUploadsEnabled  bool
+	RegistrationEnabled bool
+	MaxTextSize         int
+	MaxFileSize         string
+	CSRFToken           string
 }
 
 // errorPageVars holds the data needed to render a generic error page.
@@ -307,6 +327,7 @@ type statsPageVars struct {
 	CssSRIHash string
 	Nonce      string // For Content-Security-Policy
 	CSRFToken  string
+	Domain     string
 }
 
 // CreatorStats holds statistics for a single link creator.
@@ -351,9 +372,19 @@ type adminEditStaticLinkPageVars struct {
 type adminEditLinkPageVars struct {
 	Link        Link
 	DataString  string // The link's data, decompressed if necessary.
-	Description string
+	Description sql.NullString
 	CSRFToken   string
 	CssSRIHash  string
+}
+
+// userEditLinkPageVars holds the data for the user's dynamic link edit page.
+type userEditLinkPageVars struct {
+	Link        Link
+	DataString  string // The link's data, decompressed if necessary.
+	Description sql.NullString
+	CSRFToken   string
+	CssSRIHash  string
+	Error       string
 }
 
 // adminAbuseReportsPageVars holds data for the abuse reports management page.
@@ -368,20 +399,33 @@ type adminAbuseReportsPageVars struct {
 	CssSRIHash  string
 	Nonce       string
 	CSRFToken   string
+	Domain      string // Add this field
 }
 
-// adminAPIKeysPageVars holds data for the API key management page.
-type adminAPIKeysPageVars struct {
-	APIKeys        []APIKey
-	NewKey         string // To display a newly generated key
-	AdminJsSRIHash string
-	CssSRIHash     string
-	CurrentPage    int
-	TotalPages     int
-	HasPrev        bool
-	HasNext        bool
-	SearchQuery    string
-	CSRFToken      string
+// userAPIKeysPageVars holds data for the API key management page for regular users.
+type userAPIKeysPageVars struct {
+	APIKeys     []UserAPIKey
+	NewKey      string // To display a newly generated key
+	CssSRIHash  string
+	CurrentPage int
+	TotalPages  int
+	HasPrev     bool
+	HasNext     bool
+	SearchQuery string
+	CSRFToken   string
+}
+
+// userDashboardPageVars holds the data for the user's main dashboard page.
+type userDashboardPageVars struct {
+	Domain      string
+	Links       []Link
+	CurrentPage int
+	TotalPages  int
+	HasPrev     bool
+	HasNext     bool
+	SearchQuery string
+	CSRFToken   string
+	CssSRIHash  string
 }
 
 // apiCreateLinkRequest defines the structure for a JSON request to create a new link via the API.
@@ -392,7 +436,7 @@ type apiCreateLinkRequest struct {
 	MaxUses     int    `json:"max_uses,omitempty"`   // Optional.
 	Password    string `json:"password,omitempty"`   // Optional.
 	CustomKey   string `json:"custom_key,omitempty"` // Optional.
-	Description string `json:"description,omitempty"`
+	Description sql.NullString `json:"description,omitempty"`
 }
 
 // apiCreateLinkResponse defines the structure for a successful JSON response after creating a link.
@@ -429,7 +473,7 @@ type apiGetLinkResponse struct {
 	TimesUsed    int       `json:"times_used"`
 	ExpiresAt    time.Time `json:"expires_at"`
 	CreatedAt    time.Time `json:"created_at"`
-	Description  string    `json:"description"`
+	Description  sql.NullString `json:"description,omitempty"`
 }
 
 // CSPReport represents the structure of a CSP violation report sent by the browser.

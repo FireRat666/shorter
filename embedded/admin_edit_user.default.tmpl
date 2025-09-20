@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="color-scheme" content="dark">
+    <link rel="stylesheet" type="text/css" href="/shorter.css" integrity="{{.CssSRIHash}}">
+    <title>Edit User - {{.User.Username}}</title>
+</head>
+<body>
+    <div class="content">
+        <div class="header">
+            <img src="/logo.png">
+            <h1>Edit User: {{.User.Username}}</h1>
+        </div>
+        <div class="tos">
+            {{if .Error}}
+            <p class="info">{{.Error}}</p>
+            {{end}}
+            <form class="admin-form" method="POST" action="/admin/users/update">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="hidden" name="user_id" value="{{.User.ID}}">
+                <input type="hidden" name="domain" value="{{.Domain}}">
+
+                <label for="username">Username:</label>
+                <input type="text" id="username" name="username" class="inputbox" value="{{.User.Username}}" required>
+
+                <label for="role">Role:</label>
+                <select id="role" name="role" class="inputbox">
+                    <option value="user" {{if eq .User.Role "user"}}selected{{end}}>User</option>
+                    <option value="moderator" {{if eq .User.Role "moderator"}}selected{{end}}>Moderator</option>
+                    {{if eq .AdminRole "super_admin"}}
+                    <option value="domain_admin" {{if eq .User.Role "domain_admin"}}selected{{end}}>Domain Admin</option>
+                    {{end}}
+                </select>
+
+                <label for="password">New Password (optional):</label>
+                <input type="password" id="password" name="password" class="inputbox" placeholder="Leave blank to keep current password">
+
+                <input type="submit" value="Update User" class="admin-submit-button">
+            </form>
+            <a href="/admin/users?domain={{.Domain}}" class="button">Back to User Management</a>
+        </div>
+    </div>
+</body>
+</html>

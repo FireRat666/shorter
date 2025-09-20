@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+	<meta name="color-scheme" content="dark">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Link</title>
+    <link rel="stylesheet" href="/shorter.css" integrity="{{.CssSRIHash}}">
+</head>
+<body>
+    <div class="content">
+        <div class="header">
+            <img src="/logo.png">
+            <h1>Edit Link</h1>
+        </div>
+        <div class="header-links">
+            <a href="/user/" class="button">Dashboard</a>
+            <a href="/logout" class="button button-red">Logout</a>
+        </div>
+
+        <div class="tos">
+            <form method="POST" action="/user/edit-link?domain={{.Link.Domain}}&key={{.Link.Key}}" class="admin-form">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+
+                <label for="destination_url">Destination URL:</label>
+                <input type="text" id="destination_url" name="destination_url" value="{{.DataString}}" class="inputbox">
+
+                <label for="description">Description:</label>
+                <input type="text" id="description" name="description" value="{{.Description}}" class="inputbox">
+
+                <label for="times_allowed">Max Uses (0 for unlimited):</label>
+                <input type="number" id="times_allowed" name="times_allowed" value="{{.Link.TimesAllowed}}" class="inputbox">
+
+                <label for="password">New Password (optional):</label>
+                <input type="password" id="password" name="password" class="inputbox">
+
+                <label for="remove_password">Remove Password:</label>
+                <input type="checkbox" id="remove_password" name="remove_password" value="true">
+
+                <input type="submit" value="Save Changes" class="admin-submit-button">
+            </form>
+        </div>
+    </div>
+    <div class="footer-link">
+        <a href="https://github.com/FireRat666/shorter" target="_blank" rel="noopener noreferrer">Source Code on GitHub</a>
+    </div>
+</body>
+</html>

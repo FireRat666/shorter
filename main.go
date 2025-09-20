@@ -45,6 +45,12 @@ func main() {
 	}
 	slogger.Info("Database connection established")
 
+	// Ensure the admin user from the config exists in the database.
+	if err := ensureAdminUserExists(context.Background()); err != nil {
+		slogger.Error("Failed to ensure admin user exists", "error", err)
+		os.Exit(1)
+	}
+
 	// Clean up expired links at startup to free up keys.
 	slogger.Info("Running cleanup for expired links...")
 	deletedCount, err := deleteExpiredLinksFromDB(context.Background())
@@ -87,9 +93,11 @@ func main() {
 	// 6. Set up the HTTP request multiplexer (router).
 	mux := http.NewServeMux()
 	handleRoot(mux)
-	mux.HandleFunc("/login", handleLoginPage)
 	mux.HandleFunc("/qr", handleQRCodePage)
+	
 	handleAdminRoutes(mux)
+	handleUserRoutes(mux)
+	handleModeratorRoutes(mux)
 	handleAPIRoutes(mux)
 	handleRobots(mux)
 	handleImages(mux)
@@ -142,6 +150,44 @@ func main() {
 	}
 
 	slogger.Info("Server gracefully stopped")
+}
+
+// ensureAdminUserExists checks if the admin user from the config file exists in the
+// database and creates it if it doesn't. This migrates the legacy file-based
+// admin into the new database-backed user system.
+func ensureAdminUserExists(ctx context.Context) error {
+	// If no admin user is configured in the file, there's nothing to do.
+	if config.Admin.User == "" || config.Admin.PassHash == "" {
+		slogger.Info("No admin user configured in shorter.conf, skipping admin user creation.")
+		return nil
+	}
+
+	// Check if the user already exists.
+	existingUser, err := getUserByUsername(ctx, config.Admin.User)
+	if err != nil {
+		return fmt.Errorf("failed to check for existing admin user: %w", err)
+	}
+
+	// If the user already exists, we're done.
+	if existingUser != nil {
+		return nil
+	}
+
+	// If the user does not exist, create them.
+	slogger.Info("Admin user from config not found in database, creating it now...")
+	adminUser := &User{
+		Username: config.Admin.User,
+		Password: config.Admin.PassHash, // Storing the pre-computed hash directly
+		Role:     "super_admin",
+		Domain:   "", // Super admin is not tied to a domain
+	}
+
+	if err := createUser(ctx, adminUser); err != nil {
+		return fmt.Errorf("failed to create admin user in database: %w", err)
+	}
+
+	slogger.Info("Successfully created super_admin user in the database", "username", adminUser.Username)
+	return nil
 }
 
 // initLogger sets up the global slog logger based on the application config.

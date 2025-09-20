@@ -27,10 +27,27 @@ func setupDB(databaseURL string) error {
 	// Check that the connection is working
 	// Use a more generous timeout for initial setup, as remote connections can be slow.
 	// This timeout applies to both the ping and the schema creation.
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // Increased timeout to 60 seconds
 	defer cancel()
 	if err = db.PingContext(ctx); err != nil {
 		return fmt.Errorf("database ping failed: %w", err)
+	}
+
+	// Create the users table if it doesn't already exist
+	schemaUsers := `
+	CREATE TABLE IF NOT EXISTS users (
+		id BIGSERIAL PRIMARY KEY,
+		username TEXT NOT NULL UNIQUE,
+		password TEXT NOT NULL,
+		role TEXT NOT NULL,
+		domain TEXT,
+		totp_secret TEXT,
+		temp_totp_secret TEXT,
+		totp_enabled BOOLEAN DEFAULT FALSE,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);`
+	if _, err = db.ExecContext(ctx, schemaUsers); err != nil {
+		return fmt.Errorf("failed to create users schema: %w", err)
 	}
 
 	// Create the links table if it doesn't already exist
@@ -43,12 +60,14 @@ func setupDB(databaseURL string) error {
 		is_compressed BOOLEAN NOT NULL,
 		password_hash TEXT,
 		created_by TEXT, -- UserID of the creator (admin or API key user)
+		user_id BIGINT, -- Foreign key to the users table
 		times_allowed INT NOT NULL,
 		times_used INT DEFAULT 0 NOT NULL,
 		expires_at TIMESTAMPTZ NOT NULL,
 		created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
 		description TEXT,
-		PRIMARY KEY (key, domain)
+		PRIMARY KEY (key, domain),
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 	);`
 
 	if _, err = db.ExecContext(ctx, schema); err != nil {
@@ -93,39 +112,28 @@ func setupDB(databaseURL string) error {
 
 	// Create the sessions table for session-based authentication.
 	schemaSessions := `
-	CREATE TABLE IF NOT EXISTS sessions (
+	CREATE TABLE IF NOT EXISTS user_sessions (
 		token TEXT PRIMARY KEY,
-		user_id TEXT NOT NULL,
+		user_id BIGINT NOT NULL,
 		csrf_token TEXT NOT NULL,
-		expires_at TIMESTAMPTZ NOT NULL
+		expires_at TIMESTAMPTZ NOT NULL,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);`
 	if _, err = db.ExecContext(ctx, schemaSessions); err != nil {
-		return fmt.Errorf("failed to create sessions schema: %w", err)
-	}
-
-	// Create the clicks table for link analytics.
-	schemaClicks := `
-	CREATE TABLE IF NOT EXISTS clicks (
-		id BIGSERIAL PRIMARY KEY,
-		link_key TEXT NOT NULL,
-		link_domain TEXT NOT NULL,
-		clicked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-	);
-	CREATE INDEX IF NOT EXISTS idx_clicks_clicked_at ON clicks (clicked_at);`
-	if _, err = db.ExecContext(ctx, schemaClicks); err != nil {
-		return fmt.Errorf("failed to create clicks schema: %w", err)
+		return fmt.Errorf("failed to create user_sessions schema: %w", err)
 	}
 
 	// Create the api_keys table for API authentication.
 	schemaAPIKeys := `
-	CREATE TABLE IF NOT EXISTS api_keys (
+	CREATE TABLE IF NOT EXISTS user_api_keys (
 		token TEXT PRIMARY KEY,
-		user_id TEXT NOT NULL,
+		user_id BIGINT NOT NULL,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		description TEXT
+		description TEXT,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);`
 	if _, err = db.ExecContext(ctx, schemaAPIKeys); err != nil {
-		return fmt.Errorf("failed to create api_keys schema: %w", err)
+		return fmt.Errorf("failed to create user_api_keys schema: %w", err)
 	}
 
 	// Create the expirations table for link analytics.
@@ -166,13 +174,25 @@ func setupDB(databaseURL string) error {
 	if err := runSchemaMigration(ctx, "links", "created_by", "TEXT"); err != nil {
 		return err
 	}
-	if err := runSchemaMigration(ctx, "api_keys", "description", "TEXT"); err != nil {
+	if err := runSchemaMigration(ctx, "user_api_keys", "description", "TEXT"); err != nil {
 		return err
 	}
-	if err := runSchemaMigration(ctx, "sessions", "csrf_token", "TEXT NOT NULL DEFAULT ''"); err != nil {
+	if err := runSchemaMigration(ctx, "user_sessions", "csrf_token", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if err := runSchemaMigration(ctx, "links", "description", "TEXT"); err != nil {
+		return err
+	}
+	if err := runSchemaMigration(ctx, "links", "user_id", "BIGINT"); err != nil {
+		return err
+	}
+	if err := runSchemaMigration(ctx, "users", "totp_secret", "TEXT"); err != nil {
+		return err
+	}
+	if err := runSchemaMigration(ctx, "users", "temp_totp_secret", "TEXT"); err != nil {
+		return err
+	}
+	if err := runSchemaMigration(ctx, "users", "totp_enabled", "BOOLEAN DEFAULT FALSE"); err != nil {
 		return err
 	}
 
@@ -330,7 +350,7 @@ func deleteExpiredLinksFromDB(ctx context.Context) (int64, error) {
 
 // deleteExpiredSessionsFromDB removes all sessions that have passed their expiration date.
 func deleteExpiredSessionsFromDB(ctx context.Context) (int64, error) {
-	query := `DELETE FROM sessions WHERE expires_at <= NOW();`
+	query := `DELETE FROM user_sessions WHERE expires_at <= NOW();`
 	result, err := db.ExecContext(ctx, query)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete expired sessions: %w", err)
@@ -407,20 +427,39 @@ func getLinkCountForDomain(ctx context.Context, domain, searchQuery string) (int
 	return count, nil
 }
 
+// getLinkCountForDomainAndUser returns the total number of a user's active links within a specific domain.
+func getLinkCountForDomainAndUser(ctx context.Context, domain string, userID int64, searchQuery string) (int, error) {
+	var count int
+	args := []interface{}{domain, userID}
+	query := `SELECT COUNT(*) FROM links WHERE domain = $1 AND user_id = $2 AND expires_at > NOW()`
+
+	if searchQuery != "" {
+		query += ` AND (key ILIKE $3 OR description ILIKE $3)`
+		args = append(args, "%"+searchQuery+"%")
+	}
+
+	err := db.QueryRowContext(ctx, query, args...).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get link count for user %d in domain %s: %w", userID, domain, err)
+	}
+	return count, nil
+}
+
 // getLinksForDomain retrieves a paginated list of active links for a specific domain.
 func getLinksForDomain(ctx context.Context, domain, searchQuery string, limit, offset int) ([]Link, error) {
 	args := []interface{}{domain}
 	query := `
-		SELECT key, link_type, times_used, expires_at, password_hash, created_by, description
-		FROM links
-		WHERE domain = $1 AND expires_at > NOW()`
+		SELECT l.key, l.link_type, l.times_used, l.expires_at, l.password_hash, l.created_by, l.description, l.user_id, u.username
+		FROM links l
+		LEFT JOIN users u ON l.user_id = u.id
+		WHERE l.domain = $1 AND l.expires_at > NOW()`
 
 	if searchQuery != "" {
-		query += ` AND (key ILIKE $2 OR description ILIKE $2)`
+		query += ` AND (l.key ILIKE $2 OR l.description ILIKE $2 OR u.username ILIKE $2)`
 		args = append(args, "%"+searchQuery+"%")
 	}
 
-	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d;", len(args)+1, len(args)+2)
+	query += fmt.Sprintf(" ORDER BY l.created_at DESC LIMIT $%d OFFSET $%d;", len(args)+1, len(args)+2)
 	args = append(args, limit, offset)
 
 	rows, err := db.QueryContext(ctx, query, args...)
@@ -441,8 +480,52 @@ func getLinksForDomain(ctx context.Context, domain, searchQuery string, limit, o
 			&link.PasswordHash,
 			&link.CreatedBy,
 			&link.Description,
+			&link.UserID,
+			&link.Username,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan link row: %w", err)
+		}
+		links = append(links, link)
+	}
+	return links, rows.Err()
+}
+
+// getLinksForDomainAndUser retrieves a paginated list of a user's active links within a specific domain.
+func getLinksForDomainAndUser(ctx context.Context, domain string, userID int64, searchQuery string, limit, offset int) ([]Link, error) {
+	args := []interface{}{domain, userID}
+	query := `
+		SELECT key, link_type, times_used, expires_at, password_hash, created_by, description
+		FROM links
+		WHERE domain = $1 AND user_id = $2 AND expires_at > NOW()`
+
+	if searchQuery != "" {
+		query += ` AND (key ILIKE $3 OR description ILIKE $3)`
+		args = append(args, "%"+searchQuery+"%")
+	}
+
+	query += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d;", len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query links for user %d in domain %s: %w", userID, domain, err)
+	}
+	defer rows.Close()
+
+	var links []Link
+	for rows.Next() {
+		var link Link
+		link.Domain = domain // Set the domain since we're not selecting it
+		if err := rows.Scan(
+			&link.Key,
+			&link.LinkType,
+			&link.TimesUsed,
+			&link.ExpiresAt,
+			&link.PasswordHash,
+			&link.CreatedBy,
+			&link.Description,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan link row for user: %w", err)
 		}
 		links = append(links, link)
 	}
@@ -494,7 +577,7 @@ func deleteLink(ctx context.Context, key, domain string) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete link %s for domain %s: %w", key, domain, err)
 	}
-	return nil
+	return err
 }
 
 // analyzeTables manually triggers a database analysis on key tables.
@@ -757,6 +840,75 @@ func getStatsForDomain(ctx context.Context, domain string) (*DomainStats, error)
 // errKeyCollision is a sentinel error used to indicate a key collision with an *active* link.
 var errKeyCollision = errors.New("active key collision")
 
+// createUser creates a new user in the database.
+func createUser(ctx context.Context, user *User) error {
+	query := `INSERT INTO users (username, password, role, domain) VALUES ($1, $2, $3, $4) RETURNING id;`
+	err := db.QueryRowContext(ctx, query, user.Username, user.Password, user.Role, user.Domain).Scan(&user.ID)
+	if err != nil {
+		return fmt.Errorf("failed to create user: %w", err)
+	}
+	return nil
+}
+
+// getUserByUsername retrieves a user from the database by their username.
+func getUserByUsername(ctx context.Context, username string) (*User, error) {
+	user := &User{}
+	query := `SELECT id, username, password, role, domain, totp_secret, temp_totp_secret, totp_enabled, created_at FROM users WHERE username = $1;`
+	err := db.QueryRowContext(ctx, query, username).Scan(&user.ID, &user.Username, &user.Password, &user.Role, &user.Domain, &user.TOTPSecret, &user.TempTOTPSecret, &user.TOTPEnabled, &user.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil // No user found, not a fatal error.
+		}
+		return nil, fmt.Errorf("failed to get user from database: %w", err)
+	}
+	return user, nil
+}
+
+// getUserByID retrieves a user from the database by their ID.
+func getUserByID(ctx context.Context, userID int64) (*User, error) {
+	user := &User{}
+	query := `SELECT id, username, password, role, domain, totp_secret, temp_totp_secret, totp_enabled, created_at FROM users WHERE id = $1;`
+	err := db.QueryRowContext(ctx, query, userID).Scan(&user.ID, &user.Username, &user.Password, &user.Role, &user.Domain, &user.TOTPSecret, &user.TempTOTPSecret, &user.TOTPEnabled, &user.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil // No user found, not a fatal error.
+		}
+		return nil, fmt.Errorf("failed to get user from database: %w", err)
+	}
+	return user, nil
+}
+
+// deleteUserByID removes a user from the database by their ID.
+func deleteUserByID(ctx context.Context, userID int64) error {
+	query := `DELETE FROM users WHERE id = $1;`
+	_, err := db.ExecContext(ctx, query, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete user with ID %d: %w", userID, err)
+	}
+	return nil
+}
+
+// provisionTOTP stores a temporary TOTP secret for a user.
+func provisionTOTP(ctx context.Context, userID int64, secret string) error {
+	query := `UPDATE users SET temp_totp_secret = $1 WHERE id = $2;`
+	_, err := db.ExecContext(ctx, query, secret, userID)
+	return err
+}
+
+// enableTOTP enables TOTP for a user.
+func enableTOTP(ctx context.Context, userID int64, secret string) error {
+	query := `UPDATE users SET totp_enabled = TRUE, totp_secret = $1, temp_totp_secret = NULL WHERE id = $2;`
+	_, err := db.ExecContext(ctx, query, secret, userID)
+	return err
+}
+
+// disableTOTP disables TOTP for a user.
+func disableTOTP(ctx context.Context, userID int64) error {
+	query := `UPDATE users SET totp_enabled = FALSE, totp_secret = NULL, temp_totp_secret = NULL WHERE id = $1;`
+	_, err := db.ExecContext(ctx, query, userID)
+	return err
+}
+
 // createLinkInDB inserts a new link record into the database.
 // It uses a conditional "upsert" to reclaim keys from expired links.
 func createLinkInDB(ctx context.Context, link Link) error {
@@ -767,8 +919,8 @@ func createLinkInDB(ctx context.Context, link Link) error {
 	// If the existing link is still active, the WHERE condition is false, the UPDATE is
 	// skipped, and zero rows are affected.
 	query := `
-		INSERT INTO links (key, domain, link_type, data, is_compressed, password_hash, created_by, times_allowed, expires_at, description)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO links (key, domain, link_type, data, is_compressed, password_hash, created_by, user_id, times_allowed, expires_at, description)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (key, domain) DO UPDATE
 		SET
 			link_type = EXCLUDED.link_type,
@@ -776,6 +928,7 @@ func createLinkInDB(ctx context.Context, link Link) error {
 			is_compressed = EXCLUDED.is_compressed,
 			password_hash = EXCLUDED.password_hash,
 			created_by = EXCLUDED.created_by,
+			user_id = EXCLUDED.user_id,
 			times_allowed = EXCLUDED.times_allowed,
 			times_used = 0, -- Reset usage count for the new link
 			expires_at = EXCLUDED.expires_at,
@@ -784,7 +937,7 @@ func createLinkInDB(ctx context.Context, link Link) error {
 		WHERE
 			links.expires_at <= NOW() OR (links.times_allowed > 0 AND links.times_used >= links.times_allowed);`
 
-	result, err := db.ExecContext(ctx, query, link.Key, link.Domain, link.LinkType, link.Data, link.IsCompressed, link.PasswordHash, link.CreatedBy, link.TimesAllowed, link.ExpiresAt, link.Description)
+	result, err := db.ExecContext(ctx, query, link.Key, link.Domain, link.LinkType, link.Data, link.IsCompressed, link.PasswordHash, link.CreatedBy, link.UserID, link.TimesAllowed, link.ExpiresAt, link.Description)
 	if err != nil {
 		return fmt.Errorf("failed to insert or update link in database: %w", err)
 	}
@@ -808,7 +961,7 @@ func createLinkInDB(ctx context.Context, link Link) error {
 func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 	// Use a transaction to ensure the SELECT and UPDATE are atomic.
 	// This prevents race conditions where two requests could try to use the last
-	// available link at the same time.
+	// available link at the same and time.
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
@@ -821,7 +974,7 @@ func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 	// We will check for expiration in the application logic so we can perform
 	// a "just-in-time" deletion of the expired link.
 	querySelect := `
-		SELECT key, domain, link_type, data, is_compressed, password_hash, created_by, times_allowed, times_used, expires_at, created_at, description
+		SELECT key, domain, link_type, data, is_compressed, password_hash, created_by, user_id, times_allowed, times_used, expires_at, created_at, description
 		FROM links
 		WHERE key = $1 AND domain = $2
 		FOR UPDATE;`
@@ -834,6 +987,7 @@ func getLinkFromDB(ctx context.Context, key, domain string) (*Link, error) {
 		&link.IsCompressed,
 		&link.PasswordHash,
 		&link.CreatedBy,
+		&link.UserID,
 		&link.TimesAllowed,
 		&link.TimesUsed,
 		&link.ExpiresAt,
@@ -963,7 +1117,7 @@ func resetAllStatistics(ctx context.Context) error {
 // --- Session Management ---
 
 // createSession generates a new session token, stores it in the database, and returns the session.
-func createSession(ctx context.Context, userID string, duration time.Duration) (*Session, error) {
+func createSession(ctx context.Context, userID int64, duration time.Duration) (*UserSession, error) {
 	token, err := generateSessionToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate session token: %w", err)
@@ -976,14 +1130,14 @@ func createSession(ctx context.Context, userID string, duration time.Duration) (
 
 	expiresAt := time.Now().Add(duration)
 
-	session := &Session{
+	session := &UserSession{
 		Token:     token,
 		UserID:    userID,
 		CSRFToken: csrfToken,
 		ExpiresAt: expiresAt,
 	}
 
-	query := `INSERT INTO sessions (token, user_id, csrf_token, expires_at) VALUES ($1, $2, $3, $4);`
+	query := `INSERT INTO user_sessions (token, user_id, csrf_token, expires_at) VALUES ($1, $2, $3, $4);`
 	_, err = db.ExecContext(ctx, query, session.Token, session.UserID, session.CSRFToken, session.ExpiresAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert session into database: %w", err)
@@ -993,9 +1147,9 @@ func createSession(ctx context.Context, userID string, duration time.Duration) (
 }
 
 // getSessionByToken retrieves a session from the database if it exists and has not expired.
-func getSessionByToken(ctx context.Context, token string) (*Session, error) {
-	session := &Session{}
-	query := `SELECT token, user_id, csrf_token, expires_at FROM sessions WHERE token = $1 AND expires_at > NOW();`
+func getSessionByToken(ctx context.Context, token string) (*UserSession, error) {
+	session := &UserSession{}
+	query := `SELECT token, user_id, csrf_token, expires_at FROM user_sessions WHERE token = $1 AND expires_at > NOW();`
 
 	err := db.QueryRowContext(ctx, query, token).Scan(&session.Token, &session.UserID, &session.CSRFToken, &session.ExpiresAt)
 	if err != nil {
@@ -1009,7 +1163,7 @@ func getSessionByToken(ctx context.Context, token string) (*Session, error) {
 
 // deleteSessionByToken removes a session from the database, effectively logging the user out.
 func deleteSessionByToken(ctx context.Context, token string) error {
-	query := `DELETE FROM sessions WHERE token = $1;`
+	query := `DELETE FROM user_sessions WHERE token = $1;`
 	_, err := db.ExecContext(ctx, query, token)
 	return err
 }
@@ -1019,7 +1173,7 @@ func deleteSessionByToken(ctx context.Context, token string) error {
 func getLinkDetails(ctx context.Context, key, domain string) (*Link, error) {
 	link := &Link{}
 	query := `
-		SELECT key, domain, link_type, data, is_compressed, password_hash, created_by, times_allowed, times_used, expires_at, created_at, description
+		SELECT key, domain, link_type, data, is_compressed, password_hash, created_by, user_id, times_allowed, times_used, expires_at, created_at, description
 		FROM links
 		WHERE key = $1 AND domain = $2;`
 
@@ -1031,6 +1185,7 @@ func getLinkDetails(ctx context.Context, key, domain string) (*Link, error) {
 		&link.IsCompressed,
 		&link.PasswordHash,
 		&link.CreatedBy,
+		&link.UserID,
 		&link.TimesAllowed,
 		&link.TimesUsed,
 		&link.ExpiresAt,
@@ -1042,7 +1197,7 @@ func getLinkDetails(ctx context.Context, key, domain string) (*Link, error) {
 		if err == sql.ErrNoRows {
 			return nil, nil // No link found, not an error.
 		}
-		return nil, fmt.Errorf("failed to get link details from database: %w", err)
+		return nil, fmt.Errorf("failed to get link from database: %w", err)
 	}
 	return link, nil
 }
@@ -1117,38 +1272,107 @@ func getTopLinks(ctx context.Context, limit, offset int) ([]Link, error) {
 
 // --- API Key Management ---
 
-// getAPIKeyCountForUser returns the total number of API keys for a user, with an optional search filter.
-func getAPIKeyCountForUser(ctx context.Context, userID, searchQuery string) (int, error) {
+// getAllAPIKeys retrieves all API keys from the database, optionally filtered by search query and paginated.
+// It also joins with the users table to get the username for display.
+func getAllAPIKeys(ctx context.Context, searchQuery string, limit, offset int) ([]UserAPIKey, error) {
+	var apiKeys []UserAPIKey
+	args := []interface{}{} // Start with an empty slice for arguments
+
+	query := `
+		SELECT
+			uak.token,
+			uak.user_id,
+			uak.created_at,
+			COALESCE(uak.description, ''),
+			u.username
+		FROM user_api_keys uak
+		JOIN users u ON uak.user_id = u.id`
+
+	conditions := []string{}
+	if searchQuery != "" {
+		conditions = append(conditions, fmt.Sprintf("(uak.token ILIKE $%d OR uak.description ILIKE $%d OR u.username ILIKE $%d)", len(args)+1, len(args)+1, len(args)+1))
+		args = append(args, "%"+searchQuery+"%")
+	}
+
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	query += fmt.Sprintf(" ORDER BY uak.created_at DESC LIMIT $%d OFFSET $%d;", len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query all API keys: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var key UserAPIKey
+		if err := rows.Scan(&key.Token, &key.UserID, &key.CreatedAt, &key.Description, &key.Username); err != nil {
+			return nil, fmt.Errorf("failed to scan API key row: %w", err)
+		}
+		apiKeys = append(apiKeys, key)
+	}
+	return apiKeys, rows.Err()
+}
+
+// getAPIKeyCount returns the total number of API keys, with an optional search filter.
+func getAPIKeyCount(ctx context.Context, searchQuery string) (int, error) {
 	var count int
-	args := []interface{}{userID}
-	query := `SELECT COUNT(*) FROM api_keys WHERE user_id = $1`
+	args := []interface{}{} // Start with an empty slice for arguments
+
+	query := `SELECT COUNT(*) FROM user_api_keys uak JOIN users u ON uak.user_id = u.id`
+	conditions := []string{}
 
 	if searchQuery != "" {
-		query += ` AND token ILIKE $2`
+		conditions = append(conditions, fmt.Sprintf("(uak.token ILIKE $%d OR uak.description ILIKE $%d OR u.username ILIKE $%d)", len(args)+1, len(args)+1, len(args)+1))
+		args = append(args, "%"+searchQuery+"%")
+	}
+
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	err := db.QueryRowContext(ctx, query, args...).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get API key count: %w", err)
+	}
+	return count, nil
+}
+
+// getAPIKeyCountForUser returns the total number of API keys for a user, with an optional search filter.
+func getAPIKeyCountForUser(ctx context.Context, userID int64, searchQuery string) (int, error) {
+	var count int
+	args := []interface{}{userID}
+	query := `SELECT COUNT(*) FROM user_api_keys WHERE user_id = $1`
+
+	if searchQuery != "" {
+		query += ` AND (token ILIKE $2 OR description ILIKE $2)`
 		args = append(args, "%"+searchQuery+"%")
 	}
 
 	err := db.QueryRowContext(ctx, query, args...).Scan(&count)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get API key count for user %s: %w", userID, err)
+		return 0, fmt.Errorf("failed to get API key count for user %d: %w", userID, err)
 	}
 	return count, nil
 }
 
 // createAPIKey generates a new API key for a user and stores it in the database.
-func createAPIKey(ctx context.Context, userID, description string) (*APIKey, error) {
+func createAPIKey(ctx context.Context, userID int64, description sql.NullString) (*UserAPIKey, error) {
 	token, err := generateSessionToken() // We can reuse the same secure token generator.
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate API key token: %w", err)
 	}
 
-	apiKey := &APIKey{
+	apiKey := &UserAPIKey{
 		Token:       token,
 		UserID:      userID,
 		Description: description,
 	}
 
-	query := `INSERT INTO api_keys (token, user_id, description) VALUES ($1, $2, $3);`
+	query := `INSERT INTO user_api_keys (token, user_id, description) VALUES ($1, $2, $3);`
 	_, err = db.ExecContext(ctx, query, apiKey.Token, apiKey.UserID, apiKey.Description)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert API key into database: %w", err)
@@ -1158,12 +1382,12 @@ func createAPIKey(ctx context.Context, userID, description string) (*APIKey, err
 }
 
 // getAPIKeysForUser retrieves all API keys associated with a specific user.
-func getAPIKeysForUser(ctx context.Context, userID, searchQuery string, limit, offset int) ([]APIKey, error) {
+func getAPIKeysForUser(ctx context.Context, userID int64, searchQuery string, limit, offset int) ([]UserAPIKey, error) {
 	args := []interface{}{userID}
-	query := `SELECT token, user_id, created_at, COALESCE(description, '') FROM api_keys WHERE user_id = $1`
+	query := `SELECT token, user_id, created_at, COALESCE(description, '') FROM user_api_keys WHERE user_id = $1`
 
 	if searchQuery != "" {
-		query += ` AND token ILIKE $2`
+		query += ` AND (token ILIKE $2 OR description ILIKE $2)`
 		args = append(args, "%"+searchQuery+"%")
 	}
 
@@ -1172,13 +1396,13 @@ func getAPIKeysForUser(ctx context.Context, userID, searchQuery string, limit, o
 
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query API keys for user %s: %w", userID, err)
+		return nil, fmt.Errorf("failed to query API keys for user %d: %w", userID, err)
 	}
 	defer rows.Close()
 
-	var keys []APIKey
+	var keys []UserAPIKey
 	for rows.Next() {
-		var key APIKey
+		var key UserAPIKey
 		if err := rows.Scan(&key.Token, &key.UserID, &key.CreatedAt, &key.Description); err != nil {
 			return nil, fmt.Errorf("failed to scan API key row: %w", err)
 		}
@@ -1189,15 +1413,15 @@ func getAPIKeysForUser(ctx context.Context, userID, searchQuery string, limit, o
 
 // deleteAPIKey removes a specific API key from the database.
 func deleteAPIKey(ctx context.Context, token string) error {
-	query := `DELETE FROM api_keys WHERE token = $1;`
+	query := `DELETE FROM user_api_keys WHERE token = $1;`
 	_, err := db.ExecContext(ctx, query, token)
 	return err
 }
 
 // getAPIKeyByToken retrieves a user's API key from the database by the token string.
-func getAPIKeyByToken(ctx context.Context, token string) (*APIKey, error) {
-	apiKey := &APIKey{}
-	query := `SELECT token, user_id, created_at, COALESCE(description, '') FROM api_keys WHERE token = $1;`
+func getAPIKeyByToken(ctx context.Context, token string) (*UserAPIKey, error) {
+	apiKey := &UserAPIKey{}
+	query := `SELECT token, user_id, created_at, COALESCE(description, '') FROM user_api_keys WHERE token = $1;`
 
 	err := db.QueryRowContext(ctx, query, token).Scan(&apiKey.Token, &apiKey.UserID, &apiKey.CreatedAt, &apiKey.Description)
 	if err != nil {
@@ -1314,4 +1538,82 @@ func cleanupOrphanedAbuseReports(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+// createUserInDomain creates a new user within a specific domain.
+func createUserInDomain(ctx context.Context, user *User) error {
+	query := `INSERT INTO users (username, password, role, domain) VALUES ($1, $2, $3, $4) RETURNING id;`
+	err := db.QueryRowContext(ctx, query, user.Username, user.Password, user.Role, user.Domain).Scan(&user.ID)
+	if err != nil {
+		return fmt.Errorf("failed to create user in domain: %w", err)
+	}
+	return nil
+}
+
+// getUsersForDomain retrieves a paginated list of users for a specific domain.
+func getUsersForDomain(ctx context.Context, domain, searchQuery string, limit, offset int) ([]User, error) {
+	args := []interface{}{domain}
+	query := `
+		SELECT id, username, role, domain, totp_enabled, created_at
+		FROM users
+		WHERE domain = $1`
+
+	if searchQuery != "" {
+		query += ` AND username ILIKE $2`
+		args = append(args, "%"+searchQuery+"%")
+	}
+
+	query += fmt.Sprintf(" ORDER BY username ASC LIMIT $%d OFFSET $%d;", len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query users for domain %s: %w", domain, err)
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var user User
+		if err := rows.Scan(
+			&user.ID,
+			&user.Username,
+			&user.Role,
+			&user.Domain,
+			&user.TOTPEnabled,
+			&user.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan user row: %w", err)
+		}
+		users = append(users, user)
+	}
+	return users, rows.Err()
+}
+
+// getUserCountForDomain returns the total number of users for a specific domain.
+func getUserCountForDomain(ctx context.Context, domain, searchQuery string) (int, error) {
+	var count int
+	args := []interface{}{domain}
+	query := `SELECT COUNT(*) FROM users WHERE domain = $1`
+
+	if searchQuery != "" {
+		query += ` AND username ILIKE $2`
+		args = append(args, "%"+searchQuery+"%")
+	}
+
+	err := db.QueryRowContext(ctx, query, args...).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get user count for domain %s: %w", domain, err)
+	}
+	return count, nil
+}
+
+// updateUser updates a user's details in the database.
+func updateUser(ctx context.Context, user *User) error {
+	query := `UPDATE users SET username = $1, role = $2 WHERE id = $3;`
+	_, err := db.ExecContext(ctx, query, user.Username, user.Role, user.ID)
+	if err != nil {
+		return fmt.Errorf("failed to update user %d: %w", user.ID, err)
+	}
+	return nil
 }

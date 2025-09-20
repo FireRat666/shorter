@@ -8,7 +8,18 @@
 <body>
     <div class="content">
         <div class="header">
+            <img src="/logo.png">
             <h1>Abuse Reports</h1>
+        </div>
+
+        <div class="header-links">
+            <a href="/admin/" class="button">Dashboard</a>
+            <a href="/admin/users?domain={{.Domain}}" class="button">Users</a>
+            <a href="/admin/api-keys" class="button">API Keys</a>
+			<a href="/admin/stats" class="button">Statistics</a>
+			<a href="/admin/abuse-reports" class="button button-yellow">Abuse Reports</a>
+			<a href="/admin/security" class="button">Account Settings</a>
+            <a href="/logout" class="button button-red">Logout</a>
         </div>
 
         <div class="tos">
@@ -34,6 +45,7 @@
                             <th>Reported At</th>
                             <th>Status</th>
                             <th>Actions</th>
+                            <th>Manage</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -45,24 +57,28 @@
                             <td>{{.ReportedAt.Format "2006-01-02 15:04 MST"}}</td>
                             <td>{{.Status}}</td>
                             <td>
-                                <form method="POST" action="/admin/abuse-reports" class="status-update-form">
-                                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-                                    <input type="hidden" name="action" value="update_status">
-                                    <input type="hidden" name="report_id" value="{{.ID}}">
-                                    <select name="new_status" class="inputbox">
-                                        <option value="new" {{if eq .Status "new"}}selected{{end}}>New</option>
-                                        <option value="reviewed" {{if eq .Status "reviewed"}}selected{{end}}>Reviewed</option>
-                                        <option value="resolved" {{if eq .Status "resolved"}}selected{{end}}>Resolved</option>
-                                    </select>
-                                    <input type="submit" value="Update" class="edit-button">
-                                </form>
-                                <form method="POST" action="/admin/abuse-reports" class="delete-report-form">
-                                    <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-                                    <input type="hidden" name="action" value="delete_report">
-                                    <input type="hidden" name="report_id" value="{{.ID}}">
-                                    <input type="submit" value="Delete" class="delete-button" data-confirm="Are you sure you want to delete this report? This action cannot be undone.">
-                                </form>
-                                <a href="/admin/edit-link?domain={{.LinkDomain}}&key={{.LinkKey}}" class="edit-button manage-link-button">Manage Link</a>
+								<form method="POST" action="/admin/abuse-reports" class="status-update-form">
+									<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+									<input type="hidden" name="action" value="update_status">
+									<input type="hidden" name="report_id" value="{{.ID}}">
+									<select name="new_status" class="inputbox">
+										<option value="new" {{if eq .Status "new"}}selected{{end}}>New</option>
+										<option value="reviewed" {{if eq .Status "reviewed"}}selected{{end}}>Reviewed</option>
+										<option value="resolved" {{if eq .Status "resolved"}}selected{{end}}>Resolved</option>
+									</select>
+									<input type="submit" value="Update" class="button">
+								</form>
+                            </td>
+                            <td>
+                                <div class="action-buttons">
+                                    <form method="POST" action="/admin/abuse-reports" class="button-red">
+                                        <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+                                        <input type="hidden" name="action" value="delete_report">
+                                        <input type="hidden" name="report_id" value="{{.ID}}">
+                                        <input type="submit" value="Delete" class="button-red" data-confirm="Are you sure you want to delete this report? This action cannot be undone.">
+                                    </form>
+                                    <a href="/admin/edit-link?domain={{.LinkDomain}}&key={{.LinkKey}}" class="button">Manage Link</a>
+                                </div>
                             </td>
                         </tr>
                         {{end}}
@@ -84,7 +100,6 @@
                 {{end}}
             </div>
         </div>
-        <a href="/admin" class="admin-back-link">Back to Admin Panel</a>
     </div>
     <script nonce="{{.Nonce}}">
         document.addEventListener('DOMContentLoaded', () => {

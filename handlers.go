@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
-	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -30,6 +29,9 @@ import (
 func handleRoot(mux *http.ServeMux) {
 	mux.HandleFunc("/login/2fa", handle2FALoginPage)
 	mux.HandleFunc("/report", handleReportPage)
+	mux.HandleFunc("/register", handleRegisterPage)
+	mux.HandleFunc("/login", handleLoginPage)
+	mux.HandleFunc("/logout", handleLogout)
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		// This is the main entry point for all non-specific requests.
 		// We first add security headers and validate the request host.
@@ -62,10 +64,37 @@ func handleRoot(mux *http.ServeMux) {
 			}
 		default:
 			// For any other method, return a 405 Method Not Allowed.
-			logErrors(w, r, "Method Not Allowed", http.StatusMethodNotAllowed, "Unsupported method: "+r.Method)
+			logErrors(w, r, "Method not allowed", http.StatusMethodNotAllowed, "Unsupported method: "+r.Method)
 		}
 	}
 	mux.HandleFunc("/", handler)
+}
+
+// handleLogout deletes the user's session from the database and clears the cookie.
+func handleLogout(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("session_token")
+	if err != nil {
+		// If there's no cookie, there's nothing to do.
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	// Delete the session from the database.
+	if err := deleteSessionByToken(r.Context(), cookie.Value); err != nil {
+		// Log the error, but proceed with logout anyway.
+		slogger.Error("Failed to delete session from database during logout", "error", err)
+	}
+
+	// Clear the cookie by setting its expiration to a time in the past.
+	http.SetCookie(w, &http.Cookie{
+		Name:    "session_token",
+		Value:   "",
+		Expires: time.Unix(0, 0),
+		Path:    "/",
+	})
+
+	// Redirect to the homepage.
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // handlePOST handles all POST requests for creating new links.
@@ -152,14 +181,13 @@ func handlePOST(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt:    time.Now().Add(linkTimeout),
 	}
 
-	// Check if an admin is logged in and associate the link with them.
-	// This applies to links created via the main form.
+	// Check if a user is logged in and associate the link with them.
 	sessionCookie, err := r.Cookie("session_token")
 	if err == nil {
 		session, _ := getSessionByToken(r.Context(), sessionCookie.Value)
 		if session != nil {
-			link.CreatedBy.String = session.UserID
-			link.CreatedBy.Valid = true
+			link.UserID.Int64 = session.UserID
+			link.UserID.Valid = true
 		}
 	}
 
@@ -281,40 +309,91 @@ func handlePOST(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// A private key type to use for context values. This prevents collisions.
-type contextKey string
-
-const userContextKey = contextKey("userID")
-
 // sessionAuth is a middleware that protects handlers by requiring a valid session cookie.
 func SessionAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie("session_token")
 		if err != nil {
-			// If the cookie is not present, redirect to the login page.
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			if strings.HasPrefix(r.URL.Path, "/admin") {
+				http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+			} else {
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+			}
 			return
 		}
 
-		// Validate the session token from the cookie.
 		session, err := getSessionByToken(r.Context(), cookie.Value)
 		if err != nil {
-			// A database error occurred.
 			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to validate session: "+err.Error())
 			return
 		}
 
 		if session == nil {
-			// The session is invalid or expired. Redirect to the login page.
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			if strings.HasPrefix(r.URL.Path, "/admin") {
+				http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+			} else {
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+			}
 			return
 		}
 
-		// Add user ID to the request context for downstream handlers.
-		ctx := context.WithValue(r.Context(), userContextKey, session.UserID)
+		user, err := getUserByID(r.Context(), session.UserID)
+		if err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to get user from session: "+err.Error())
+			return
+		}
+		if user == nil {
+			// This case is unlikely if the session is valid, but handle it defensively.
+			logErrors(w, r, "Forbidden", http.StatusForbidden, "User not found for valid session")
+			return
+		}
 
-		// If the session is valid, call the next handler with the new context.
-		next.ServeHTTP(w, r.WithContext(ctx))
+		// Add the full user object to the request context.
+		r = setUserInContext(r, user)
+
+		// If the session is valid, call the next handler.
+		next.ServeHTTP(w, r)
+	}
+}
+
+// roleAuth is a middleware that protects handlers by requiring a minimum user role.
+func roleAuth(requiredRole string) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			user := getUserFromContext(r)
+			if user == nil {
+				// This should not happen if SessionAuth middleware is used before this.
+				logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not get user from context")
+				return
+			}
+
+			// Define role hierarchy
+			roles := map[string]int{
+				"user":         1,
+				"moderator":    2,
+				"domain_admin": 3,
+				"super_admin":  4,
+			}
+
+			userLevel, ok := roles[user.Role]
+			if !ok {
+				logErrors(w, r, "Forbidden", http.StatusForbidden, "Unknown user role")
+				return
+			}
+
+			requiredLevel, ok := roles[requiredRole]
+			if !ok {
+				logErrors(w, r, errServerError, http.StatusInternalServerError, "Unknown required role specified in handler")
+				return
+			}
+
+			if userLevel < requiredLevel {
+				logErrors(w, r, "Forbidden", http.StatusForbidden, "User does not have the required role")
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		}
 	}
 }
 
@@ -479,11 +558,19 @@ func apiAuth(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
-		// Add the API token itself to the context. This allows us to track link
-		// creation per-key, rather than just per-user. The link creation handler
-		// will use this value for the `created_by` field.
-		ctx := context.WithValue(r.Context(), userContextKey, apiKey.Token)
-		next.ServeHTTP(w, r.WithContext(ctx))
+		user, err := getUserByID(r.Context(), apiKey.UserID)
+		if err != nil {
+			respondWithError(w, http.StatusInternalServerError, "Failed to retrieve user for API key.")
+			return
+		}
+		if user == nil {
+			respondWithError(w, http.StatusUnauthorized, "User for API key not found.")
+			return
+		}
+
+		// Add the full user object to the request context.
+		r = setUserInContext(r, user)
+		next.ServeHTTP(w, r)
 	}
 }
 
@@ -502,11 +589,10 @@ func handleAPIGetLink(w http.ResponseWriter, r *http.Request) {
 		domain = config.PrimaryDomain
 	}
 
-	// Get the API key token from the context to verify ownership.
-	apiKeyToken, ok := r.Context().Value(userContextKey).(string)
-	if !ok {
+	user := getUserFromContext(r)
+	if user == nil {
 		// This should not happen if apiAuth middleware is working correctly.
-		respondWithError(w, http.StatusInternalServerError, "Could not identify API key from request context.")
+		respondWithError(w, http.StatusInternalServerError, "Could not identify user from request context.")
 		return
 	}
 
@@ -522,7 +608,7 @@ func handleAPIGetLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Ownership check: The API key in the request must match the creator of the link.
-	if !link.CreatedBy.Valid || link.CreatedBy.String != apiKeyToken {
+	if !link.UserID.Valid || link.UserID.Int64 != user.ID {
 		respondWithError(w, http.StatusForbidden, "This API key does not have permission to view this link.")
 		return
 	}
@@ -579,9 +665,8 @@ func handleAPICreateLink(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusForbidden, "The requested domain is not configured on this service")
 		return
 	}
-	// The creatorID will be the API token, as set by the apiAuth middleware.
-	creatorID, ok := r.Context().Value(userContextKey).(string)
-	if !ok {
+	user := getUserFromContext(r)
+	if user == nil {
 		// This should not happen if apiAuth middleware is working correctly.
 		respondWithError(w, http.StatusInternalServerError, "Could not identify creator from API key.")
 		return
@@ -609,8 +694,8 @@ func handleAPICreateLink(w http.ResponseWriter, r *http.Request) {
 		TimesAllowed: req.MaxUses,
 		ExpiresAt:    time.Now().Add(linkTimeout),
 	}
-	link.CreatedBy.String = creatorID
-	link.CreatedBy.Valid = true
+	link.UserID.Int64 = user.ID
+	link.UserID.Valid = true
 
 	// Add password if provided.
 	if req.Password != "" {
@@ -698,11 +783,10 @@ func handleAPIDeleteLink(w http.ResponseWriter, r *http.Request) {
 		domain = config.PrimaryDomain
 	}
 
-	// Get the API key token from the context to verify ownership.
-	apiKeyToken, ok := r.Context().Value(userContextKey).(string)
-	if !ok {
+	user := getUserFromContext(r)
+	if user == nil {
 		// This should not happen if apiAuth middleware is working correctly.
-		respondWithError(w, http.StatusInternalServerError, "Could not identify API key from request context.")
+		respondWithError(w, http.StatusInternalServerError, "Could not identify user from request context.")
 		return
 	}
 
@@ -720,7 +804,7 @@ func handleAPIDeleteLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Ownership check: The API key in the request must match the creator of the link.
-	if !link.CreatedBy.Valid || link.CreatedBy.String != apiKeyToken {
+	if !link.UserID.Valid || link.UserID.Int64 != user.ID {
 		respondWithError(w, http.StatusForbidden, "This API key does not have permission to delete this link.")
 		return
 	}
@@ -757,10 +841,9 @@ func handleAPIUpdateLink(w http.ResponseWriter, r *http.Request) {
 		domain = config.PrimaryDomain
 	}
 
-	// Get the API key token from the context to verify ownership.
-	apiKeyToken, ok := r.Context().Value(userContextKey).(string)
-	if !ok {
-		respondWithError(w, http.StatusInternalServerError, "Could not identify API key from request context.")
+	user := getUserFromContext(r)
+	if user == nil {
+		respondWithError(w, http.StatusInternalServerError, "Could not identify user from request context.")
 		return
 	}
 
@@ -776,7 +859,7 @@ func handleAPIUpdateLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Ownership check: The API key in the request must match the creator of the link.
-	if !link.CreatedBy.Valid || link.CreatedBy.String != apiKeyToken {
+	if !link.UserID.Valid || link.UserID.Int64 != user.ID {
 		respondWithError(w, http.StatusForbidden, "This API key does not have permission to update this link.")
 		return
 	}
@@ -848,111 +931,145 @@ func handleCSPReport(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleRegisterPage handles user registration for a specific domain.
+func handleRegisterPage(w http.ResponseWriter, r *http.Request) {
+	domain := r.URL.Query().Get("domain")
+	if domain == "" {
+		// If no domain is specified in the query, fall back to the host header.
+		// This maintains compatibility with old links or bookmarks.
+		domain = r.Host
+	}
+
+	// Check if the domain is valid and if registration is enabled.
+	subdomainCfg := getSubdomainConfig(domain)
+	if _, ok := config.Subdomains[domain]; !ok {
+		logErrors(w, r, "Domain not found.", http.StatusNotFound, "Registration attempted for non-existent domain: "+domain)
+		return
+	}
+
+	if subdomainCfg.RegistrationEnabled == nil || !*subdomainCfg.RegistrationEnabled {
+		logErrors(w, r, "User registration is not enabled for this domain.", http.StatusForbidden, "Registration attempted on domain with disabled registration: "+domain)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		registerTmpl, ok := templateMap["register"]
+		if !ok {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load register template")
+			return
+		}
+
+		// Define the struct for template variables inside the handler
+		// to keep it locally scoped.
+		type registerPageVars struct {
+			CssSRIHash string
+			Error      string
+			CSRFToken  string
+			Domain     string
+		}
+
+		pageVars := registerPageVars{
+			CssSRIHash: cssSRIHash,
+			Domain:     domain,
+			CSRFToken:  getOrSetCSRFToken(w, r),
+			Error:      r.URL.Query().Get("error"),
+		}
+
+		if err := registerTmpl.Execute(w, pageVars); err != nil {
+			logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute register template: "+err.Error())
+		}
+		logOK(r, http.StatusOK)
+
+	case http.MethodPost:
+		// Wrap the POST logic in the CSRF protection middleware.
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := r.ParseForm(); err != nil {
+				logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Registration form parse error: "+err.Error())
+				return
+			}
+
+			username := r.FormValue("username")
+			password := r.FormValue("password")
+			confirmPassword := r.FormValue("confirm_password")
+
+			// Validation
+			if username == "" || password == "" {
+				http.Redirect(w, r, fmt.Sprintf("/register?domain=%s&error=Username and password are required.", url.QueryEscape(domain)), http.StatusSeeOther)
+				return
+			}
+
+			if strings.EqualFold(username, "admin") {
+				http.Redirect(w, r, fmt.Sprintf("/register?domain=%s&error=That username is reserved.", url.QueryEscape(domain)), http.StatusSeeOther)
+				return
+			}
+
+			if password != confirmPassword {
+				http.Redirect(w, r, fmt.Sprintf("/register?domain=%s&error=Passwords do not match.", url.QueryEscape(domain)), http.StatusSeeOther)
+				return
+			}
+
+			// Hash password
+			hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+			if err != nil {
+				logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to hash password during registration: "+err.Error())
+				return
+			}
+
+			// Create user
+			newUser := &User{
+				Username: username,
+				Password: string(hashedPassword),
+				Role:     "user", // Default role for new registrations
+				Domain:   domain,
+			}
+
+			// Use createUserInDomain to ensure the user is created within the correct domain context.
+			if err := createUserInDomain(r.Context(), newUser); err != nil {
+				if strings.Contains(err.Error(), "violates unique constraint") {
+					http.Redirect(w, r, fmt.Sprintf("/register?domain=%s&error=Username already exists.", url.QueryEscape(domain)), http.StatusSeeOther)
+				} else {
+					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to create user: "+err.Error())
+				}
+				return
+			}
+
+			// Redirect to login page on success
+			http.Redirect(w, r, "/login?domain="+url.QueryEscape(domain), http.StatusSeeOther)
+		})
+		csrfProtect(handler)(w, r)
+
+	default:
+		addHeaders(w, r)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 // handleLoginPage serves the login page for GET requests and handles login form submissions for POST requests.
 func handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		handleLogin(w, r)
+		return
+	}
+
 	// If the user is already logged in, redirect them to the admin dashboard.
 	cookie, err := r.Cookie("session_token")
 	if err == nil {
 		session, _ := getSessionByToken(r.Context(), cookie.Value)
 		if session != nil {
-			http.Redirect(w, r, "/admin/", http.StatusSeeOther)
-			return
+			user, err := getUserByID(r.Context(), session.UserID)
+			if err == nil && user != nil {
+				if user.Role == "super_admin" {
+					http.Redirect(w, r, "/admin/", http.StatusSeeOther)
+				} else {
+					http.Redirect(w, r, "/user/security", http.StatusSeeOther)
+				}
+				return
+			}
 		}
 	}
 
 	csrfToken := getOrSetCSRFToken(w, r)
-
-	if r.Method == http.MethodPost {
-		if err := r.ParseForm(); err != nil {
-			logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Login form parse error: "+err.Error())
-			return
-		}
-
-		// Protect the login form itself from CSRF.
-		if r.FormValue("csrf_token") != csrfToken {
-			logErrors(w, r, "Forbidden", http.StatusForbidden, "CSRF token mismatch on login form")
-			return
-		}
-
-		username := r.FormValue("username")
-		password := r.FormValue("password")
-
-		// Validate credentials against the configuration.
-		if username != config.Admin.User || bcrypt.CompareHashAndPassword([]byte(config.Admin.PassHash), []byte(password)) != nil {
-			// Authentication failed. Redirect back to login page with an error message.
-			slogger.Warn("Failed login attempt", "user", username)
-			http.Redirect(w, r, "/login?error=Invalid+username+or+password", http.StatusSeeOther)
-			return
-		}
-
-		// If 2FA is enabled, don't create a full session yet.
-		// Create a temporary, signed cookie to indicate the first factor (password) was successful.
-		if config.Admin.TOTPEnabled {
-			// The message is just the username. The signature proves it's from us.
-			signature := generateHMAC([]byte(username))
-			cookieValue := fmt.Sprintf("%s|%s", username, base64.StdEncoding.EncodeToString(signature))
-
-			http.SetCookie(w, &http.Cookie{
-				Name:     "temp_auth",
-				Value:    cookieValue,
-				Expires:  time.Now().Add(5 * time.Minute), // Short-lived
-				HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode, Path: "/",
-			})
-			http.Redirect(w, r, "/login/2fa", http.StatusSeeOther)
-			return
-		}
-
-		// Authentication successful.
-		slogger.Info("Admin user successfully authenticated", "user", username)
-
-		// Determine session duration based on "Remember Me" checkbox.
-		rememberMe := r.FormValue("remember_me") == "true"
-		var sessionDuration time.Duration
-		var err error
-
-		if rememberMe {
-			sessionDuration, err = time.ParseDuration(config.SessionTimeoutRememberMe)
-			if err != nil {
-				slogger.Error("Invalid SessionTimeoutRememberMe format, using default 24h", "duration", config.SessionTimeoutRememberMe, "error", err)
-				sessionDuration = 24 * time.Hour
-			}
-		} else {
-			sessionDuration, err = time.ParseDuration(config.SessionTimeout)
-			if err != nil {
-				slogger.Error("Invalid SessionTimeout format, using default 24h", "duration", config.SessionTimeout, "error", err)
-				sessionDuration = 24 * time.Hour
-			}
-		}
-
-		// Create a new session for the user.
-		session, err := createSession(r.Context(), username, sessionDuration)
-		if err != nil {
-			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to create session: "+err.Error())
-			return
-		}
-
-		// Set the session token in a secure cookie.
-		http.SetCookie(w, &http.Cookie{
-			Name:     "session_token",
-			Value:    session.Token,
-			Expires:  session.ExpiresAt,
-			HttpOnly: true,
-			Secure:   r.TLS != nil, // Only send over HTTPS
-			SameSite: http.SameSiteLaxMode,
-			Path:     "/",
-		})
-
-		// Clear the anonymous CSRF cookie, as the token is now part of the session.
-		http.SetCookie(w, &http.Cookie{
-			Name:    "csrf_token",
-			Value:   "",
-			Expires: time.Unix(0, 0),
-			Path:    "/",
-		})
-
-		// Redirect to the admin dashboard.
-		http.Redirect(w, r, "/admin/", http.StatusSeeOther)
-	}
 
 	// Handle GET request to display the login page.
 	addHeaders(w, r)
@@ -972,6 +1089,82 @@ func handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to execute login template: "+err.Error())
 	}
 	logOK(r, http.StatusOK)
+}
+
+// handleLogin handles the user login form submission.
+func handleLogin(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "Login form parse error: "+err.Error())
+		return
+	}
+
+	username := r.FormValue("username")
+	password := r.FormValue("password")
+
+	user, err := getUserByUsername(r.Context(), username)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to get user: "+err.Error())
+		return
+	}
+
+	if user == nil || bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)) != nil {
+		http.Redirect(w, r, "/login?error=Invalid+username+or+password", http.StatusSeeOther)
+		return
+	}
+
+	if user.TOTPEnabled {
+		signature := generateHMAC([]byte(username))
+		cookieValue := fmt.Sprintf("%s|%s", username, base64.StdEncoding.EncodeToString(signature))
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     "temp_auth",
+			Value:    cookieValue,
+			Expires:  time.Now().Add(5 * time.Minute), // Short-lived
+			HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteLaxMode, Path: "/",
+		})
+		http.Redirect(w, r, "/login/2fa", http.StatusSeeOther)
+		return
+	}
+
+	// Determine session duration based on "Remember Me" checkbox.
+	rememberMe := r.FormValue("remember_me") == "true"
+	var sessionDuration time.Duration
+
+	if rememberMe {
+		sessionDuration, err = time.ParseDuration(config.SessionTimeoutRememberMe)
+		if err != nil {
+			slogger.Error("Invalid SessionTimeoutRememberMe format, using default 24h", "duration", config.SessionTimeoutRememberMe, "error", err)
+			sessionDuration = 24 * time.Hour
+		}
+	} else {
+		sessionDuration, err = time.ParseDuration(config.SessionTimeout)
+		if err != nil {
+			slogger.Error("Invalid SessionTimeout format, using default 24h", "duration", config.SessionTimeout, "error", err)
+			sessionDuration = 24 * time.Hour
+		}
+	}
+
+	session, err := createSession(r.Context(), user.ID, sessionDuration)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to create session: "+err.Error())
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session_token",
+		Value:    session.Token,
+		Expires:  session.ExpiresAt,
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+		Path:     "/",
+	})
+
+	if user.Role == "super_admin" {
+		http.Redirect(w, r, "/admin/", http.StatusSeeOther)
+	} else {
+		http.Redirect(w, r, "/user/security", http.StatusSeeOther)
+	}
 }
 
 // handle2FALoginPage handles the second step of the login process for 2FA.
@@ -1003,6 +1196,12 @@ func handle2FALoginPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user, err := getUserByUsername(r.Context(), username)
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to get user: "+err.Error())
+		return
+	}
+
 	if r.Method == http.MethodPost {
 		if err := r.ParseForm(); err != nil {
 			logErrors(w, r, "Failed to parse form.", http.StatusBadRequest, "2FA form parse error: "+err.Error())
@@ -1010,7 +1209,7 @@ func handle2FALoginPage(w http.ResponseWriter, r *http.Request) {
 		}
 
 		code := r.FormValue("totp_code")
-		if !totp.Validate(code, config.Admin.TOTPSecret) {
+		if !user.TOTPSecret.Valid || !totp.Validate(code, user.TOTPSecret.String) {
 			// Invalid code. Re-render the page with an error.
 			slogger.Warn("Failed 2FA attempt", "user", username)
 			render2FAPage(w, r, "Invalid verification code.")
@@ -1018,7 +1217,7 @@ func handle2FALoginPage(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// 2FA successful. Now we can create the full, persistent session.
-		slogger.Info("Admin user successfully passed 2FA", "user", username)
+		slogger.Info("User successfully passed 2FA", "user", username)
 
 		// Determine session duration based on "Remember Me" checkbox from the *original* login form.
 		// We'll assume a default duration here for simplicity, or you could pass it in the temp cookie.
@@ -1027,7 +1226,7 @@ func handle2FALoginPage(w http.ResponseWriter, r *http.Request) {
 			sessionDuration = 24 * time.Hour
 		}
 
-		session, err := createSession(r.Context(), username, sessionDuration)
+		session, err := createSession(r.Context(), user.ID, sessionDuration)
 		if err != nil {
 			logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to create session after 2FA: "+err.Error())
 			return
@@ -1047,7 +1246,11 @@ func handle2FALoginPage(w http.ResponseWriter, r *http.Request) {
 		// Clear the temporary auth cookie.
 		http.SetCookie(w, &http.Cookie{Name: "temp_auth", Value: "", Expires: time.Unix(0, 0), Path: "/"})
 
-		http.Redirect(w, r, "/admin/", http.StatusSeeOther)
+		if user.Role == "super_admin" {
+			http.Redirect(w, r, "/admin/", http.StatusSeeOther)
+		} else {
+			http.Redirect(w, r, "/user/security", http.StatusSeeOther)
+		}
 		return
 	}
 

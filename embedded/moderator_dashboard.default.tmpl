@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Moderator Dashboard - {{.Domain}}</title>
+    <link rel="stylesheet" href="/static/style.css" integrity="sha384-{{.CssSRIHash}}">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+    <div class="container">
+        <img src="/logo.png">
+        <h1>Moderator Dashboard: {{.Domain}}</h1>
+        <p><a href="/user/">My Links</a> | <a href="/user/security">My Account</a> | <a href="/logout">Logout</a></p>
+
+        <h2>Links in this Domain</h2>
+
+        <form method="get" action="/moderator/">
+            <input type="text" name="q" placeholder="Search links..." value="{{.SearchQuery}}">
+            <button type="submit">Search</button>
+        </form>
+
+        {{if .Links}}
+            <form method="post" action="/moderator/delete-links">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <p><button type="submit" onclick="return confirm('Are you sure you want to delete the selected links?');">Delete Selected Links</button></p>
+                <table>
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" onclick="toggle(this);"></th>
+                            <th>Key</th>
+                            <th>Destination</th>
+                            <th>Expires</th>
+                            <th>Owner</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {{range .Links}}
+                        <tr>
+                            <td><input type="checkbox" name="link_keys" value="{{.Key}}"></td>
+                            <td><a href="/{{.Key}}">{{.Key}}</a></td>
+                            <td class="destination-url">
+                                {{if eq .LinkType "file"}}
+                                    File: {{.Description}}
+                                {{else if eq .LinkType "text"}}
+                                    Text Snippet
+                                {{else}}
+                                    {{.Data | printf "%s"}}
+                                {{end}}
+                            </td>
+                            <td>{{.ExpiresAt.Format "2006-01-02 15:04"}}</td>
+                            <td>{{if .UserID.Valid}}{{.Username.String}}{{else}}Anonymous{{end}}</td>
+                            <td><a href="/admin/edit-link?domain={{$.Domain}}&key={{.Key}}">Edit</a></td>
+                        </tr>
+                    {{end}}
+                    </tbody>
+                </table>
+            </form>
+
+            <div class="pagination">
+                {{if .HasPrev}}
+                    <a href="/moderator/?page={{.CurrentPage | add -1}}{{if .SearchQuery}}&q={{.SearchQuery}}{{end}}">&laquo; Previous</a>
+                {{end}}
+                <span>Page {{.CurrentPage}} of {{.TotalPages}}</span>
+                {{if .HasNext}}
+                    <a href="/moderator/?page={{.CurrentPage | add 1}}{{if .SearchQuery}}&q={{.SearchQuery}}{{end}}">Next &raquo;</a>
+                {{end}}
+            </div>
+        {{else}}
+            <p>No links found for this domain.</p>
+        {{end}}
+    </div>
+    <script>
+        function toggle(source) {
+            checkboxes = document.getElementsByName('link_keys');
+            for(var i=0, n=checkboxes.length;i<n;i++) {
+                checkboxes[i].checked = source.checked;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="color-scheme" content="dark">
+    <link rel="stylesheet" type="text/css" href="/shorter.css" integrity="{{.CssSRIHash}}">
+    <title>Register</title>
+</head><body>
+<div class="content">
+    <div class="header">
+        <img src="/logo.png">
+        <h1>Register for {{.Domain}}</h1>
+    </div>
+    <div class="tos">
+        {{if .Error}}
+        <div class="error-message">{{.Error}}</div>
+        {{end}}
+        <form method="POST" action="/register?domain={{.Domain}}">
+            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+            <label for="username">Username:</label>
+            <input type="text" id="username" name="username" class="inputbox" required>
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" class="inputbox" required>
+            <label for="confirm_password">Confirm Password:</label>
+            <input type="password" id="confirm_password" name="confirm_password" class="inputbox" required>
+            <input type="submit" value="Register" class="button">
+        </form>
+        <a href="/login?domain={{.Domain}}">Already have an account? Login</a>
+    </div>
+</div>
+</body>
+</html>

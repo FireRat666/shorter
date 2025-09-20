@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+	<meta name="color-scheme" content="dark">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Dashboard</title>
+    <link rel="stylesheet" href="/shorter.css" integrity="{{.CssSRIHash}}">
+</head>
+<body>
+    <div class="content">
+        <div class="header">
+            <img src="/logo.png">
+            <h1>User Dashboard</h1>
+        </div>
+        <div class="header-links">
+            <a href="/user/api-keys" class="button">API Keys</a>
+            <a href="/user/security" class="button">Security</a>
+            <a href="/logout" class="button button-red">Logout</a>
+        </div>
+
+        <div class="tos">
+            <h2>My Links for {{.Domain}}</h2>
+
+            <div class="search-container">
+                <form action="/user/" method="GET">
+                    <input type="text" name="q" placeholder="Search keys or descriptions..." value="{{.SearchQuery}}" class="inputbox">
+                    <input type="submit" value="Search" class="button">
+                </form>
+            </div>
+
+            <form method="POST" action="/admin/edit?domain={{.Domain}}"> 
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="hidden" name="action" value="delete_multiple_dynamic_links">
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" onclick="toggle(this);"></th>
+                            <th>Key</th>
+                            <th>Type</th>
+                            <th>Clicks</th>
+                            <th>Expires</th>
+                            <th>Description</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Links}}
+                        <tr>
+                            <td><input type="checkbox" name="link_keys" value="{{.Key}}"></td>
+                            <td><a href="/{{.Key}}" target="_blank">/{{.Key}}</a></td>
+                            <td>{{.LinkType}}</td>
+                            <td>{{.TimesUsed}}</td>
+                            <td>{{.ExpiresAt.Format "2006-01-02 15:04"}}</td>
+                            <td>{{.Description}}</td>
+                            <td>
+                                <a href="/user/edit-link?domain={{.Domain}}&key={{.Key}}" class="button small">Edit</a>
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+
+                <div class="bulk-actions">
+                    <input type="submit" value="Delete Selected Links" class="button danger" onclick="return confirm('Are you sure you want to delete the selected links? This cannot be undone.');">
+                </div>
+            </form>
+
+            <div class="pagination">
+                {{if .HasPrev}}
+                <a href="/user/?page={{sub .CurrentPage 1}}&q={{.SearchQuery}}" class="button">&laquo; Previous</a>
+                {{end}}
+                <span>Page {{.CurrentPage}} of {{.TotalPages}}</span>
+                {{if .HasNext}}
+                <a href="/user/?page={{add .CurrentPage 1}}&q={{.SearchQuery}}" class="button">Next &raquo;</a>
+                {{end}}
+            </div>
+        </div>
+    </div>
+    <div class="footer-link">
+        <a href="https://github.com/FireRat666/shorter" target="_blank" rel="noopener noreferrer">Source Code on GitHub</a>
+    </div>
+    <script>
+        function toggle(source) {
+            checkboxes = document.getElementsByName('link_keys');
+            for(var i=0, n=checkboxes.length;i<n;i++) {
+                checkboxes[i].checked = source.checked;
+            }
+        }
+    </script>
+</body>
+</html>

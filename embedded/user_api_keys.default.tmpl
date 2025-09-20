@@ -3,23 +3,17 @@
 <head>
     <meta name="color-scheme" content="dark">
     <link rel="stylesheet" type="text/css" href="/shorter.css" integrity="{{.CssSRIHash}}">
-    <script src="/js/admin.js" integrity="{{.AdminJsSRIHash}}" defer></script>
     <title>API Key Management</title>
-    <title>Admin API Key Management</title>
 </head>
 <body>
     <div class="content">
         <div class="header">
             <img src="/logo.png">
-            <h1>Admin API Key Management</h1>
+            <h1>API Key Management</h1>
         </div>
         <div class="header-links">
-            <a href="/admin/" class="button">Dashboard</a>
-            <a href="/admin/users?domain={{.CurrentRequestDomain}}" class="button">Users</a>
-            <a href="/admin/api-keys" class="button button-yellow">API Keys</a>
-			<a href="/admin/stats" class="button">Statistics</a>
-			<a href="/admin/abuse-reports" class="button">Abuse Reports</a>
-			<a href="/admin/security" class="button">Account Settings</a>
+            <a href="/user/" class="button">Dashboard</a>
+            <a href="/user/security" class="button">Security</a>
             <a href="/logout" class="button button-red">Logout</a>
         </div>
 
@@ -34,18 +28,17 @@
         {{end}}
 
         <div class="tos">
-            <h2>All API Keys</h2>
-            <form class="search-form" method="GET" action="/admin/api-keys">
-                <input type="text" name="q" class="inputbox" placeholder="Search by key or username..." value="{{.SearchQuery}}">
+            <h2>Your API Keys</h2>
+            <form class="search-form" method="GET" action="/user/api-keys">
+                <input type="text" name="q" class="inputbox" placeholder="Search by key..." value="{{.SearchQuery}}">
                 <input type="submit" value="Search" class="button">
-                <a href="/admin/api-keys" class="button clear-button">Clear</a>
+                <a href="/user/api-keys" class="button clear-button">Clear</a>
             </form>
 
             {{if .APIKeys}}
                 <table>
                     <thead>
                         <tr>
-                            <th>User</th>
                             <th>Key (first 8 characters)</th>
                             <th>Description</th>
                             <th>Created At</th>
@@ -53,18 +46,17 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {{range $i, $key := .APIKeys}}
+                        {{range .APIKeys}}
                         <tr>
-                            <td>{{(index $.Users $i).Username}}</td>
-                            <td><code>{{$key.Token | printf "%.8s"}}...</code></td>
-                            <td>{{$key.Description}}</td>
-                            <td>{{$key.CreatedAt.Format "2006-01-02 15:04 MST"}}</td>
+                            <td><code>{{.Token | printf "%.8s"}}...</code></td>
+                            <td>{{.Description}}</td>
+                            <td>{{.CreatedAt.Format "2006-01-02 15:04 MST"}}</td>
                             <td>
-                                <form method="POST" action="/admin/api-keys">
+                                <form method="POST" action="/user/api-keys">
                                     <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
                                     <input type="hidden" name="action" value="delete">
-                                    <input type="hidden" name="token" value="{{$key.Token}}">
-                                    <input type="submit" value="Delete" class="button-red" data-confirm="Are you sure you want to delete this API key? Any applications using it will stop working.">
+                                    <input type="hidden" name="token" value="{{.Token}}">
+                                    <input type="submit" value="Delete" class="delete-button" data-confirm="Are you sure you want to delete this API key? Any applications using it will stop working.">
                                 </form>
                             </td>
                         </tr>
@@ -77,21 +69,19 @@
             {{if .APIKeys}}
             <div class="pagination-controls">
                 {{if .HasPrev}}
-                    <a href="/admin/api-keys?q={{.SearchQuery}}&page={{sub .CurrentPage 1}}" class="pagination-button">&laquo; Previous</a>
+                    <a href="/user/api-keys?q={{.SearchQuery}}&page={{sub .CurrentPage 1}}" class="pagination-button">&laquo; Previous</a>
                 {{end}}
                 {{if gt .TotalPages 1}}
                     <span>Page {{.CurrentPage}} of {{.TotalPages}}</span>
                 {{end}}
                 {{if .HasNext}}
-                    <a href="/admin/api-keys?q={{.SearchQuery}}&page={{add .CurrentPage 1}}" class="pagination-button">Next &raquo;</a>
+                    <a href="/user/api-keys?q={{.SearchQuery}}&page={{add .CurrentPage 1}}" class="pagination-button">Next &raquo;</a>
                 {{end}}
             </div>
             {{end}}
-            <form class="admin-form" method="POST" action="/admin/api-keys">
+            <form class="admin-form" method="POST" action="/user/api-keys">
                 <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                 <input type="hidden" name="action" value="generate">
-                <label for="user_id">User ID:</label>
-                <input type="number" id="user_id" name="user_id" class="inputbox" placeholder="e.g., 123">
                 <label for="description">Description:</label>
                 <input type="text" id="description" name="description" class="inputbox" placeholder="e.g., 'CI/CD Pipeline Key'">
                 <input type="submit" value="Generate New API Key" class="admin-submit-button">
