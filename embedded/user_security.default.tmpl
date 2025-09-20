@@ -15,6 +15,7 @@
         <div class="header-links">
              <a href="/user/" class="button">Dashboard</a>
              <a href="/user/api-keys" class="button">API Keys</a>
+             <a href="/user/security" class="button button-yellow">Security</a>
              <a href="/logout" class="button button-red">Logout</a>
         </div>
 
@@ -23,6 +24,9 @@
 
             {{if .Error}}
                 <div class="error-message">{{.Error}}</div>
+            {{end}}
+            {{if .Success}}
+                <div class="success-message">{{.Success}}</div>
             {{end}}
 
             <h2>Two-Factor Authentication (2FA)</h2>
@@ -60,6 +64,28 @@
             {{end}}
         </div>
 
+        {{/* New Password Change Section */}}
+        <div class="tos">
+            <h2>Change Password</h2>
+            <form method="POST" action="/user/security" class="aligned-form">
+                <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                <input type="hidden" name="action" value="change-password">
+
+                <label for="old_password">Current Password:</label>
+                <input type="password" id="old_password" name="old_password" required class="inputbox">
+
+                <label for="new_password">New Password:</label>
+                <input type="password" id="new_password" name="new_password" required minlength="8" class="inputbox">
+                <small>Minimum 8 characters.</small>
+
+                <label for="confirm_new_password">Confirm New Password:</label>
+                <input type="password" id="confirm_new_password" name="confirm_new_password" required class="inputbox">
+
+                <input type="submit" value="Change Password" class="button">
+            </form>
+        </div>
+        {{/* End New Password Change Section */}}
+
         <div class="tos">
             <h2>Delete Account</h2>
             <p>This action is irreversible. All of your API keys and sessions will be deleted. Your links will be disassociated from your account.</p>
@@ -70,7 +96,7 @@
                     <label for="totp_code_delete">2FA Verification Code:</label>
                     <input type="text" id="totp_code_delete" name="totp_code" required autocomplete="off" placeholder="123456" class="inputbox">
                 {{end}}
-                <input type="submit" value="Delete My Account" class="button danger">
+                <input type="submit" value="Delete My Account" class="button button-red">
             </form>
         </div>
     </div>

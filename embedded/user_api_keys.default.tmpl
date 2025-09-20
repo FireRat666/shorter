@@ -13,6 +13,7 @@
         </div>
         <div class="header-links">
             <a href="/user/" class="button">Dashboard</a>
+            <a href="/user/api-keys" class="button button-yellow">API Keys</a>
             <a href="/user/security" class="button">Security</a>
             <a href="/logout" class="button button-red">Logout</a>
         </div>
@@ -56,7 +57,7 @@
                                     <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="token" value="{{.Token}}">
-                                    <input type="submit" value="Delete" class="delete-button" data-confirm="Are you sure you want to delete this API key? Any applications using it will stop working.">
+                                    <input type="submit" value="Delete" class="button-red" data-confirm="Are you sure you want to delete this API key? Any applications using it will stop working.">
                                 </form>
                             </td>
                         </tr>

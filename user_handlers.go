@@ -296,6 +296,45 @@ func handleUserSecurityPage(w http.ResponseWriter, r *http.Request) {
 					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to disable 2FA: "+err.Error())
 					return
 				}
+			case "change-password":
+				oldPassword := r.FormValue("old_password")
+				newPassword := r.FormValue("new_password")
+				confirmNewPassword := r.FormValue("confirm_new_password")
+
+				if oldPassword == "" || newPassword == "" || confirmNewPassword == "" {
+					renderUserSecurityPage(w, r, user, "All password fields are required.")
+					return
+				}
+				if newPassword != confirmNewPassword {
+					renderUserSecurityPage(w, r, user, "New passwords do not match.")
+					return
+				}
+				if len(newPassword) < 8 { // Example: enforce minimum password length
+					renderUserSecurityPage(w, r, user, "New password must be at least 8 characters long.")
+					return
+				}
+
+				// Verify old password
+				if bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword)) != nil {
+					renderUserSecurityPage(w, r, user, "Incorrect old password.")
+					return
+				}
+
+				// Hash new password
+				hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+				if err != nil {
+					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to hash new password: "+err.Error())
+					return
+				}
+
+				// Update user's password in the database
+				user.Password = string(hashedPassword)
+				if err := updateUser(r.Context(), user); err != nil { // Assuming updateUser can update the password field
+					logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to update password: "+err.Error())
+					return
+				}
+				http.Redirect(w, r, "/user/security?success=Password+updated+successfully.", http.StatusSeeOther)
+				return // Important to return after redirect
 			case "delete-account":
 				if user.TOTPEnabled {
 					code := r.FormValue("totp_code")
@@ -326,7 +365,7 @@ func handleUserSecurityPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	renderUserSecurityPage(w, r, user, "")
+	renderUserSecurityPage(w, r, user, r.URL.Query().Get("error"))
 }
 
 func renderUserSecurityPage(w http.ResponseWriter, r *http.Request, user *User, errorMsg string) {
@@ -341,6 +380,7 @@ func renderUserSecurityPage(w http.ResponseWriter, r *http.Request, user *User, 
 		TOTPSecret       string
 		CssSRIHash       string
 		Error            string
+		Success          string // Added for success messages
 		CSRFToken        string
 		TOTPProvisioning bool
 	}{
@@ -348,6 +388,7 @@ func renderUserSecurityPage(w http.ResponseWriter, r *http.Request, user *User, 
 		TOTPSecret:       user.TempTOTPSecret.String, // Show the temp secret for provisioning
 		CssSRIHash:       cssSRIHash,
 		Error:            errorMsg,
+		Success:          r.URL.Query().Get("success"), // Get success message from URL
 		CSRFToken:        getOrSetCSRFToken(w, r),
 		TOTPProvisioning: user.TempTOTPSecret.Valid,
 	}

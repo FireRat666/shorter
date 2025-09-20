@@ -14,6 +14,7 @@
             <h1>User Dashboard</h1>
         </div>
         <div class="header-links">
+            <a href="/user/" class="button button-yellow">Dashboard</a>
             <a href="/user/api-keys" class="button">API Keys</a>
             <a href="/user/security" class="button">Security</a>
             <a href="/logout" class="button button-red">Logout</a>
@@ -63,7 +64,7 @@
                 </table>
 
                 <div class="bulk-actions">
-                    <input type="submit" value="Delete Selected Links" class="button danger" onclick="return confirm('Are you sure you want to delete the selected links? This cannot be undone.');">
+                    <input type="submit" value="Delete Selected Links" class="button button-red" onclick="return confirm('Are you sure you want to delete the selected links? This cannot be undone.');">
                 </div>
             </form>
 
