@@ -2032,6 +2032,24 @@ func handleReportPage(w http.ResponseWriter, r *http.Request) {
 
 // renderReportPage is a helper to render the abuse report form.
 func renderReportPage(w http.ResponseWriter, r *http.Request, key, errorMsg string) {
+	nonce, err := generateCSPNonce()
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate security token")
+		return
+	}
+
+	// Define the Content Security Policy, including the nonce for scripts.
+	// We also need to allow unsafe-inline for styles as per hCaptcha requirements (handled in global config,
+	// but we override here to ensure nonce is present for scripts).
+	// Note: We inherit the style-src 'unsafe-inline' from the global config if we were just appending,
+	// but here we are replacing the CSP header for this specific response.
+	// So we must include all necessary directives.
+	csp := fmt.Sprintf(
+		"default-src 'none'; script-src 'self' 'nonce-%s' https://js.hcaptcha.com https://*.hcaptcha.com; frame-src 'self' https://hcaptcha.com https://*.hcaptcha.com; style-src 'self' 'unsafe-inline' https://*.hcaptcha.com; img-src 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; report-uri /csp-report;",
+		nonce,
+	)
+	w.Header().Set("Content-Security-Policy", csp)
+
 	addHeaders(w, r)
 	reportTmpl, ok := templateMap["report"]
 	if !ok {
@@ -2050,6 +2068,7 @@ func renderReportPage(w http.ResponseWriter, r *http.Request, key, errorMsg stri
 		CSRFToken       string
 		CaptchaActive   bool
 		CssSRIHash      string
+		Nonce           string
 	}{
 		ReportedURL:     r.Host + "/" + key,
 		Key:             key,
@@ -2058,6 +2077,7 @@ func renderReportPage(w http.ResponseWriter, r *http.Request, key, errorMsg stri
 		CSRFToken:       getOrSetCSRFToken(w, r),
 		CaptchaActive:   captchaActive,
 		CssSRIHash:      cssSRIHash,
+		Nonce:           nonce,
 	}
 
 	if err := reportTmpl.Execute(w, pageVars); err != nil {

@@ -4,7 +4,7 @@
     <meta name="color-scheme" content="dark">
     <link rel="stylesheet" type="text/css" href="/shorter.css" integrity="{{.CssSRIHash}}">
     {{if .CaptchaActive}}
-    <script src="https://js.hcaptcha.com/1/api.js" async defer crossorigin="anonymous"></script>
+    <script src="https://js.hcaptcha.com/1/api.js" async defer crossorigin="anonymous" nonce="{{.Nonce}}"></script>
     {{end}}
     <title>Report Abuse</title>
 </head>

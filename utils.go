@@ -179,3 +179,13 @@ func verifyHMAC(message, signature []byte) bool {
 	expectedMAC := generateHMAC(message)
 	return hmac.Equal(signature, expectedMAC)
 }
+
+// generateCSPNonce creates a cryptographically secure random string for use as a CSP nonce.
+func generateCSPNonce() (string, error) {
+	b := make([]byte, 16)
+	_, err := rand.Read(b)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate nonce: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(b), nil
+}
