@@ -10,6 +10,7 @@ import (
 func TestRenderReportPageCSP(t *testing.T) {
 	// Initialize minimal config
 	config.AbuseReporting.Enabled = true
+	config.AbuseReporting.CaptchaEnabled = true
 	config.HCaptcha.SiteKey = "sitekey"
 
 	// Initialize template map
