@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // validate validates if string s contains only characters in charset. validate is not a crypto related function so no need for constant time
@@ -216,6 +217,10 @@ func isURLBlockedByDNSBL(urlToCheck string) (bool, error) {
 		resolver = customResolver
 	}
 
+	// Create a context with a 5-second timeout for the DNS operations.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	parsedURL, err := url.Parse(urlToCheck)
 	if err != nil {
 		return false, fmt.Errorf("could not parse URL for DNSBL check: %w", err)
@@ -231,7 +236,7 @@ func isURLBlockedByDNSBL(urlToCheck string) (bool, error) {
 		ipsToCheck = []net.IP{ip}
 	} else {
 		// If it's a domain name, resolve it to its IP addresses.
-		resolvedIPs, err := resolver.LookupIP(context.Background(), "ip", host)
+		resolvedIPs, err := resolver.LookupIP(ctx, "ip", host)
 		if err != nil {
 			// This can happen for legitimate new domains. We log it but don't treat it as a block.
 			slogger.Info("Could not resolve host for DNSBL check", "host", host, "error", err)
@@ -253,7 +258,7 @@ func isURLBlockedByDNSBL(urlToCheck string) (bool, error) {
 		for _, server := range config.MalwareProtection.DNSBLServers {
 			query := fmt.Sprintf("%s.%s", reversedIP, server)
 			// If the lookup returns any address, it means the IP is on the blocklist.
-			addrs, err := resolver.LookupHost(context.Background(), query)
+			addrs, err := resolver.LookupHost(ctx, query)
 			if err != nil {
 				if dnsErr, ok := err.(*net.DNSError); ok && dnsErr.IsNotFound {
 					// This is the expected result for a clean IP, so we continue to the next server.
