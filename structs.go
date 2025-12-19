@@ -275,6 +275,7 @@ type IndexPageVars struct {
 	MaxTextSize         int
 	MaxFileSize         string
 	CSRFToken           string
+	Nonce               string
 }
 
 // errorPageVars holds the data needed to render a generic error page.
@@ -438,12 +439,12 @@ type userDashboardPageVars struct {
 
 // apiCreateLinkRequest defines the structure for a JSON request to create a new link via the API.
 type apiCreateLinkRequest struct {
-	URL         string `json:"url"`
-	Domain      string `json:"domain,omitempty"`     // Optional. If not provided, use PrimaryDomain.
-	ExpiresIn   string `json:"expires_in,omitempty"` // Optional. e.g., "1h", "30m". If not provided, use a default.
-	MaxUses     int    `json:"max_uses,omitempty"`   // Optional.
-	Password    string `json:"password,omitempty"`   // Optional.
-	CustomKey   string `json:"custom_key,omitempty"` // Optional.
+	URL         string         `json:"url"`
+	Domain      string         `json:"domain,omitempty"`     // Optional. If not provided, use PrimaryDomain.
+	ExpiresIn   string         `json:"expires_in,omitempty"` // Optional. e.g., "1h", "30m". If not provided, use a default.
+	MaxUses     int            `json:"max_uses,omitempty"`   // Optional.
+	Password    string         `json:"password,omitempty"`   // Optional.
+	CustomKey   string         `json:"custom_key,omitempty"` // Optional.
 	Description sql.NullString `json:"description,omitempty"`
 }
 
@@ -471,16 +472,16 @@ type apiDeleteLinkRequest struct {
 
 // apiGetLinkResponse defines the structure for a successful JSON response when getting a link's details.
 type apiGetLinkResponse struct {
-	Key          string    `json:"key"`
-	Domain       string    `json:"domain"`
-	LinkType     string    `json:"link_type"`
-	Data         string    `json:"data"` // For "url" and "text" types. Filename for "file" type.
-	HasPassword  bool      `json:"has_password"`
-	CreatedBy    string    `json:"created_by"`
-	TimesAllowed int       `json:"times_allowed"`
-	TimesUsed    int       `json:"times_used"`
-	ExpiresAt    time.Time `json:"expires_at"`
-	CreatedAt    time.Time `json:"created_at"`
+	Key          string         `json:"key"`
+	Domain       string         `json:"domain"`
+	LinkType     string         `json:"link_type"`
+	Data         string         `json:"data"` // For "url" and "text" types. Filename for "file" type.
+	HasPassword  bool           `json:"has_password"`
+	CreatedBy    string         `json:"created_by"`
+	TimesAllowed int            `json:"times_allowed"`
+	TimesUsed    int            `json:"times_used"`
+	ExpiresAt    time.Time      `json:"expires_at"`
+	CreatedAt    time.Time      `json:"created_at"`
 	Description  sql.NullString `json:"description,omitempty"`
 }
 

@@ -132,6 +132,6 @@
         <a href="https://github.com/FireRat666/shorter" target="_blank" rel="noopener noreferrer">Source Code on GitHub</a>
     </div>
     {{/* The defer attribute ensures the script runs after the document is parsed, which is what DOMContentLoaded does. */}}
-    <script src="/js/index.js" integrity="{{.IndexJsSRIHash}}" crossorigin="anonymous" defer></script>
+    <script src="/js/index.js" integrity="{{.IndexJsSRIHash}}" crossorigin="anonymous" defer nonce="{{.Nonce}}"></script>
 </body>
 </html>

@@ -57,6 +57,9 @@ func TestRenderReportPageCSP(t *testing.T) {
 	if !strings.Contains(csp, "'unsafe-inline'") {
 		t.Errorf("CSP missing 'unsafe-inline' for styles. Got: %s", csp)
 	}
+	if !strings.Contains(csp, "'strict-dynamic'") {
+		t.Errorf("CSP missing 'strict-dynamic' for scripts. Got: %s", csp)
+	}
 	if !strings.Contains(csp, "nonce-") {
 		t.Errorf("CSP missing nonce for scripts. Got: %s", csp)
 	}
@@ -73,4 +76,66 @@ func TestRenderReportPageCSP(t *testing.T) {
 
 	// We can just verify that the nonce in CSP matches the one in body if we really want to be sure,
 	// but the presence is likely enough for now.
+}
+
+func TestServeIndexPageCSP(t *testing.T) {
+	// Initialize minimal config
+	config.Defaults.LinkLen1 = 1
+	config.Defaults.LinkLen2 = 2
+	config.Defaults.LinkLen3 = 3
+	config.Defaults.LinkAccessMaxNr = 0
+
+	// Initialize template map
+	templateMap = make(map[string]*template.Template)
+	// Minimal index template that uses nonce
+	tmplContent := `
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="/js/index.js" nonce="{{.Nonce}}"></script>
+</head>
+<body>
+</body>
+</html>
+`
+	tmpl, err := template.New("index").Parse(tmplContent)
+	if err != nil {
+		t.Fatalf("Failed to parse template: %v", err)
+	}
+	templateMap["index"] = tmpl
+
+	// Create a recorder and request
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+
+	// Call the function
+	serveIndexPage(w, r)
+
+	// Check response code
+	if w.Code != 200 {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	// Check CSP header
+	csp := w.Header().Get("Content-Security-Policy")
+	if csp == "" {
+		t.Fatal("Content-Security-Policy header is missing")
+	}
+
+	// Verify CSP directives
+	if !strings.Contains(csp, "'unsafe-inline'") {
+		t.Errorf("CSP missing 'unsafe-inline' for styles. Got: %s", csp)
+	}
+	if !strings.Contains(csp, "'strict-dynamic'") {
+		t.Errorf("CSP missing 'strict-dynamic' for scripts. Got: %s", csp)
+	}
+	if !strings.Contains(csp, "nonce-") {
+		t.Errorf("CSP missing nonce for scripts. Got: %s", csp)
+	}
+
+	// Check body for nonce attribute
+	body := w.Body.String()
+	if !strings.Contains(body, `nonce="`) {
+		t.Errorf("Response body missing nonce attribute. Got: %s", body)
+	}
 }

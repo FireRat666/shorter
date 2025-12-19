@@ -1434,6 +1434,22 @@ func serveIndexPage(w http.ResponseWriter, r *http.Request) {
 	subdomainCfg := getSubdomainConfig(r.Host)
 	csrfToken := getOrSetCSRFToken(w, r)
 
+	// Generate nonce for CSP
+	nonce, err := generateCSPNonce()
+	if err != nil {
+		logErrors(w, r, errServerError, http.StatusInternalServerError, "Failed to generate security token")
+		return
+	}
+
+	// Set dynamic CSP with nonce and strict-dynamic
+	// We need to allow unsafe-inline for styles (as per hCaptcha reqs) and strict-dynamic for scripts
+	// strict-dynamic allows the loader (with nonce) to load other scripts (like hCaptcha's internal scripts)
+	csp := fmt.Sprintf(
+		"default-src 'none'; script-src 'self' 'nonce-%s' 'strict-dynamic' https: http: 'unsafe-inline'; frame-src 'self' https://hcaptcha.com https://*.hcaptcha.com; style-src 'self' 'unsafe-inline' https://*.hcaptcha.com; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; connect-src 'self' https://hcaptcha.com https://*.hcaptcha.com; report-uri /csp-report;",
+		nonce,
+	)
+	w.Header().Set("Content-Security-Policy", csp)
+
 	indexTmpl, ok := templateMap["index"]
 	if !ok || indexTmpl == nil {
 		logErrors(w, r, errServerError, http.StatusInternalServerError, "Unable to load index template")
@@ -1453,6 +1469,7 @@ func serveIndexPage(w http.ResponseWriter, r *http.Request) {
 		MaxTextSize:        config.MaxTextSize,
 		MaxFileSize:        formatFileSize(subdomainCfg.MaxRequestSize),
 		CSRFToken:          csrfToken,
+		Nonce:              nonce,
 	}
 
 	if err := indexTmpl.Execute(w, pageVars); err != nil {
@@ -2044,8 +2061,9 @@ func renderReportPage(w http.ResponseWriter, r *http.Request, key, errorMsg stri
 	// Note: We inherit the style-src 'unsafe-inline' from the global config if we were just appending,
 	// but here we are replacing the CSP header for this specific response.
 	// So we must include all necessary directives.
+	// We add 'strict-dynamic' to allow hCaptcha's api.js to load its dependencies.
 	csp := fmt.Sprintf(
-		"default-src 'none'; script-src 'self' 'nonce-%s' https://js.hcaptcha.com https://*.hcaptcha.com; frame-src 'self' https://hcaptcha.com https://*.hcaptcha.com; style-src 'self' 'unsafe-inline' https://*.hcaptcha.com; img-src 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; report-uri /csp-report;",
+		"default-src 'none'; script-src 'self' 'nonce-%s' 'strict-dynamic' https: http: 'unsafe-inline'; frame-src 'self' https://hcaptcha.com https://*.hcaptcha.com; style-src 'self' 'unsafe-inline' https://*.hcaptcha.com; img-src 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self'; report-uri /csp-report;",
 		nonce,
 	)
 	w.Header().Set("Content-Security-Policy", csp)
