@@ -131,6 +131,12 @@ func initTemplates() error {
 		"mul": func(a, b int) int {
 			return a * b
 		},
+		"derefBool": func(b *bool) bool {
+			if b == nil {
+				return false
+			}
+			return *b
+		},
 	}
 
 	loadTemplate("index", defaultIndexHTML, funcMap)

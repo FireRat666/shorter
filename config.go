@@ -123,6 +123,23 @@ func overrideConfigWithEnv() {
 	if fileUploadsEnabled := os.Getenv("SHORTER_FILE_UPLOADS_ENABLED"); fileUploadsEnabled != "" {
 		config.FileUploadsEnabled = strings.ToLower(fileUploadsEnabled) == "true"
 	}
+
+	// Allow overriding hCaptcha settings via environment variables.
+	if siteKey := os.Getenv("HCAPTCHA_SITE_KEY"); siteKey != "" {
+		config.HCaptcha.SiteKey = siteKey
+	}
+	if secretKey := os.Getenv("HCAPTCHA_SECRET_KEY"); secretKey != "" {
+		config.HCaptcha.SecretKey = secretKey
+	}
+	if enableForLogin := os.Getenv("HCAPTCHA_ENABLE_FOR_LOGIN"); enableForLogin != "" {
+		config.HCaptcha.EnableForLogin = strings.ToLower(enableForLogin) == "true"
+	}
+	if enableForRegistration := os.Getenv("HCAPTCHA_ENABLE_FOR_REGISTRATION"); enableForRegistration != "" {
+		config.HCaptcha.EnableForRegistration = strings.ToLower(enableForRegistration) == "true"
+	}
+	if abuseCaptcha := os.Getenv("ABUSE_REPORTING_CAPTCHA_ENABLED"); abuseCaptcha != "" {
+		config.AbuseReporting.CaptchaEnabled = strings.ToLower(abuseCaptcha) == "true"
+	}
 }
 
 // setupHMAC ensures that a secret key for signing cookies is available.
@@ -166,4 +183,3 @@ func setupHMAC() error {
 	// 5. If there was some other error reading the file, return it.
 	return fmt.Errorf("failed to read HMAC secret from %s: %w", hmacFilePath, err)
 }
-

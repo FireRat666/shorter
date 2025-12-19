@@ -61,32 +61,35 @@ func addHeaders(w http.ResponseWriter, _ *http.Request) {
 func getSubdomainConfig(host string) SubdomainConfig {
 	// Start with the global config values.
 	mergedConfig := SubdomainConfig{
-		LinkLen1:         config.LinkLen1,
-		LinkLen2:         config.LinkLen2,
-		LinkLen3:         config.LinkLen3,
-		MaxKeyLen:        config.MaxKeyLen,
-		MaxRequestSize:   config.MaxRequestSize,
-		MaxTextSize:      config.MaxTextSize,
-		MinSizeToGzip:    config.MinSizeToGzip,
-		FileUploadsEnabled: &config.FileUploadsEnabled,
+		LinkLen1:            config.LinkLen1,
+		LinkLen2:            config.LinkLen2,
+		LinkLen3:            config.LinkLen3,
+		MaxKeyLen:           config.MaxKeyLen,
+		MaxRequestSize:      config.MaxRequestSize,
+		MaxTextSize:         config.MaxTextSize,
+		MinSizeToGzip:       config.MinSizeToGzip,
+		FileUploadsEnabled:  &config.FileUploadsEnabled,
 		RegistrationEnabled: config.Defaults.RegistrationEnabled, // Initialize with default
 		// Initialize AnonymousRateLimit with a copy of the global config's values
 		AnonymousRateLimit: &AnonymousRateLimitConfig{
 			Enabled: config.AnonymousRateLimit.Enabled,
 			Every:   config.AnonymousRateLimit.Every,
 		},
-		RateLimit1: &RateLimitXYConfig{},
-		RateLimit2: &RateLimitXYConfig{},
-		LinkLen1Timeout:  config.Defaults.LinkLen1Timeout,
-		LinkLen1Display:  config.Defaults.LinkLen1Display,
-		LinkLen2Timeout:  config.Defaults.LinkLen2Timeout,
-		LinkLen2Display:  config.Defaults.LinkLen2Display,
-		LinkLen3Timeout:  config.Defaults.LinkLen3Timeout,
-		LinkLen3Display:  config.Defaults.LinkLen3Display,
-		CustomTimeout:    config.Defaults.CustomTimeout,
-		CustomDisplay:    config.Defaults.CustomDisplay,
-		LinkAccessMaxNr:  config.Defaults.LinkAccessMaxNr,
-		StaticLinks:      config.Defaults.StaticLinks,
+		RateLimit1:                   &RateLimitXYConfig{},
+		RateLimit2:                   &RateLimitXYConfig{},
+		LinkLen1Timeout:              config.Defaults.LinkLen1Timeout,
+		LinkLen1Display:              config.Defaults.LinkLen1Display,
+		LinkLen2Timeout:              config.Defaults.LinkLen2Timeout,
+		LinkLen2Display:              config.Defaults.LinkLen2Display,
+		LinkLen3Timeout:              config.Defaults.LinkLen3Timeout,
+		LinkLen3Display:              config.Defaults.LinkLen3Display,
+		CustomTimeout:                config.Defaults.CustomTimeout,
+		CustomDisplay:                config.Defaults.CustomDisplay,
+		LinkAccessMaxNr:              config.Defaults.LinkAccessMaxNr,
+		StaticLinks:                  config.Defaults.StaticLinks,
+		EnableForLogin:               &config.HCaptcha.EnableForLogin,
+		EnableForRegistration:        &config.HCaptcha.EnableForRegistration,
+		AbuseReportingCaptchaEnabled: &config.AbuseReporting.CaptchaEnabled,
 	}
 
 	// Check if a specific configuration exists for this host.
@@ -119,6 +122,15 @@ func getSubdomainConfig(host string) SubdomainConfig {
 		}
 		if subConfig.RegistrationEnabled != nil {
 			mergedConfig.RegistrationEnabled = subConfig.RegistrationEnabled
+		}
+		if subConfig.EnableForLogin != nil {
+			mergedConfig.EnableForLogin = subConfig.EnableForLogin
+		}
+		if subConfig.EnableForRegistration != nil {
+			mergedConfig.EnableForRegistration = subConfig.EnableForRegistration
+		}
+		if subConfig.AbuseReportingCaptchaEnabled != nil {
+			mergedConfig.AbuseReportingCaptchaEnabled = subConfig.AbuseReportingCaptchaEnabled
 		}
 		// Handle AnonymousRateLimit merging
 		if subConfig.AnonymousRateLimit != nil {

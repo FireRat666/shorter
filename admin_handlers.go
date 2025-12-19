@@ -852,13 +852,6 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 		// Get the fully resolved config for the domain.
 		subdomainCfg := getSubdomainConfig(domain)
 
-		// Add debug logging for RegistrationEnabled
-		if subdomainCfg.RegistrationEnabled != nil {
-			slogger.Debug("handleAdminEditPage: subdomainCfg.RegistrationEnabled", "domain", domain, "value", *subdomainCfg.RegistrationEnabled)
-		} else {
-			slogger.Debug("handleAdminEditPage: subdomainCfg.RegistrationEnabled", "domain", domain, "value", "nil")
-		}
-
 		// Create a struct holding the true default values for the template to compare against.
 		templateDefaults := config.Defaults
 		templateDefaults.LinkLen1 = config.LinkLen1
@@ -892,6 +885,31 @@ func handleAdminEditPage(w http.ResponseWriter, r *http.Request) {
 		} else {
 			registrationEnabledCopy := *config.Defaults.RegistrationEnabled
 			templateDefaults.RegistrationEnabled = &registrationEnabledCopy
+		}
+
+		// Explicitly set the effective defaults for Captcha settings
+		if config.HCaptcha.EnableForLogin {
+			defaultTrue := true
+			templateDefaults.EnableForLogin = &defaultTrue
+		} else {
+			defaultFalse := false
+			templateDefaults.EnableForLogin = &defaultFalse
+		}
+
+		if config.HCaptcha.EnableForRegistration {
+			defaultTrue := true
+			templateDefaults.EnableForRegistration = &defaultTrue
+		} else {
+			defaultFalse := false
+			templateDefaults.EnableForRegistration = &defaultFalse
+		}
+
+		if config.AbuseReporting.CaptchaEnabled {
+			defaultTrue := true
+			templateDefaults.AbuseReportingCaptchaEnabled = &defaultTrue
+		} else {
+			defaultFalse := false
+			templateDefaults.AbuseReportingCaptchaEnabled = &defaultFalse
 		}
 
 		editTmpl, ok := templateMap["admin_edit"]
@@ -1465,6 +1483,16 @@ func parseSubdomainForm(r *http.Request) (SubdomainConfig, error) {
 	// RegistrationEnabled is a boolean checkbox.
 	registrationEnabled := r.FormValue("RegistrationEnabled") == "on"
 	newConfig.RegistrationEnabled = &registrationEnabled
+
+	// Captcha settings are boolean checkboxes.
+	enableForLogin := r.FormValue("EnableForLogin") == "on"
+	newConfig.EnableForLogin = &enableForLogin
+
+	enableForRegistration := r.FormValue("EnableForRegistration") == "on"
+	newConfig.EnableForRegistration = &enableForRegistration
+
+	abuseReportingCaptchaEnabled := r.FormValue("AbuseReportingCaptchaEnabled") == "on"
+	newConfig.AbuseReportingCaptchaEnabled = &abuseReportingCaptchaEnabled
 
 	// AnonymousRateLimit.Enabled is a boolean checkbox.
 	anonymousRateLimitEnabled := r.FormValue("AnonymousRateLimitEnabled") == "on"

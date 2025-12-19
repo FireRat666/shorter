@@ -229,10 +229,11 @@ func handlePOST(w http.ResponseWriter, r *http.Request) {
 
 		// Check the URL against the blocklist.
 		isBlocked, err := isURLBlockedByDNSBL(formURL)
-		if err != nil || isBlocked {
-			if err != nil {
-				slogger.Error("DNSBL check failed, blocking submission", "url", formURL, "error", err)
-			}
+		if err != nil {
+			// Fail open: If the check fails (e.g. DNS error), we log it but allow the submission.
+			slogger.Warn("DNSBL check failed, allowing submission", "url", formURL, "error", err)
+		} else if isBlocked {
+			// Only block if we are certain it is on the blocklist.
 			logErrors(w, r, "The provided URL is not allowed.", http.StatusBadRequest, "Blocked malicious URL submission")
 			return
 		}
@@ -961,7 +962,11 @@ func handleRegisterPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		captchaActive := config.HCaptcha.EnableForRegistration && config.HCaptcha.SiteKey != ""
+		captchaActive := false
+		if subdomainCfg.EnableForRegistration != nil {
+			captchaActive = *subdomainCfg.EnableForRegistration
+		}
+		captchaActive = captchaActive && config.HCaptcha.SiteKey != ""
 
 		type registerPageVars struct {
 			CssSRIHash      string
@@ -994,7 +999,12 @@ func handleRegisterPage(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			if config.HCaptcha.EnableForRegistration {
+			enableForRegistration := false
+			if subdomainCfg.EnableForRegistration != nil {
+				enableForRegistration = *subdomainCfg.EnableForRegistration
+			}
+
+			if enableForRegistration {
 				hCaptchaResponse := r.FormValue("h-captcha-response")
 				if !verifyCaptcha(hCaptchaResponse, r.RemoteAddr) {
 					http.Redirect(w, r, fmt.Sprintf("/register?domain=%s&error=CAPTCHA verification failed. Please try again.", url.QueryEscape(domain)), http.StatusSeeOther)
@@ -1092,7 +1102,12 @@ func handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	captchaActive := config.HCaptcha.EnableForLogin && config.HCaptcha.SiteKey != ""
+	subdomainCfg := getSubdomainConfig(r.Host)
+	captchaActive := false
+	if subdomainCfg.EnableForLogin != nil {
+		captchaActive = *subdomainCfg.EnableForLogin
+	}
+	captchaActive = captchaActive && config.HCaptcha.SiteKey != ""
 
 	pageVars := loginPageVars{
 		CssSRIHash:      cssSRIHash,
@@ -1115,7 +1130,13 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if config.HCaptcha.EnableForLogin {
+	subdomainCfg := getSubdomainConfig(r.Host)
+	enableForLogin := false
+	if subdomainCfg.EnableForLogin != nil {
+		enableForLogin = *subdomainCfg.EnableForLogin
+	}
+
+	if enableForLogin {
 		hCaptchaResponse := r.FormValue("h-captcha-response")
 		if !verifyCaptcha(hCaptchaResponse, r.RemoteAddr) {
 			http.Redirect(w, r, "/login?error=CAPTCHA+verification+failed.+Please+try+again.", http.StatusSeeOther)
@@ -1683,7 +1704,7 @@ func handleGET(w http.ResponseWriter, r *http.Request) {
 			}
 
 			fileBytes, err := os.ReadFile(filePath)
-		if err != nil {
+			if err != nil {
 				logErrors(w, r, errServerError, http.StatusInternalServerError, "Could not retrieve file for download: "+err.Error())
 				return
 			}
@@ -1968,8 +1989,14 @@ func handleReportPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		subdomainCfg := getSubdomainConfig(r.Host)
+		captchaEnabled := false
+		if subdomainCfg.AbuseReportingCaptchaEnabled != nil {
+			captchaEnabled = *subdomainCfg.AbuseReportingCaptchaEnabled
+		}
+
 		// Verify the hCaptcha response if enabled for abuse reports.
-		if config.AbuseReporting.CaptchaEnabled {
+		if captchaEnabled {
 			hCaptchaResponse := r.FormValue("h-captcha-response")
 			if !verifyCaptcha(hCaptchaResponse, r.RemoteAddr) {
 				renderReportPage(w, r, key, "CAPTCHA verification failed. Please try again.")

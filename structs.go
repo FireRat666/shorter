@@ -100,28 +100,31 @@ type RateLimitXYConfig struct {
 
 // SubdomainConfig holds settings that can be applied globally or per-subdomain.
 type SubdomainConfig struct {
-	LinkLen1            int                       `yaml:"LinkLen1,omitempty"`
-	LinkLen2            int                       `yaml:"LinkLen2,omitempty"`
-	LinkLen3            int                       `yaml:"LinkLen3,omitempty"`
-	MaxKeyLen           int                       `yaml:"MaxKeyLen,omitempty"`
-	MaxRequestSize      int64                     `yaml:"MaxRequestSize,omitempty"`
-	MaxTextSize         int                       `yaml:"MaxTextSize,omitempty"`
-	MinSizeToGzip       int                       `yaml:"MinSizeToGzip,omitempty"`
-	FileUploadsEnabled  *bool                     `yaml:"FileUploadsEnabled,omitempty"`
-	RegistrationEnabled *bool                     `yaml:"RegistrationEnabled,omitempty"`
-	AnonymousRateLimit  *AnonymousRateLimitConfig `yaml:"AnonymousRateLimit,omitempty"`
-	RateLimit1          *RateLimitXYConfig        `yaml:"RateLimit1,omitempty"`
-	RateLimit2          *RateLimitXYConfig        `yaml:"RateLimit2,omitempty"`
-	LinkLen1Timeout     string                    `yaml:"LinkLen1Timeout,omitempty"`
-	LinkLen1Display     string                    `yaml:"LinkLen1Display,omitempty"`
-	LinkLen2Timeout     string                    `yaml:"LinkLen2Timeout,omitempty"`
-	LinkLen2Display     string                    `yaml:"LinkLen2Display,omitempty"`
-	LinkLen3Timeout     string                    `yaml:"LinkLen3Timeout,omitempty"`
-	LinkLen3Display     string                    `yaml:"LinkLen3Display,omitempty"`
-	CustomTimeout       string                    `yaml:"CustomTimeout,omitempty"`
-	CustomDisplay       string                    `yaml:"CustomDisplay,omitempty"`
-	LinkAccessMaxNr     int                       `yaml:"LinkAccessMaxNr,omitempty"`
-	StaticLinks         map[string]string         `yaml:"StaticLinks,omitempty"`
+	LinkLen1                     int                       `yaml:"LinkLen1,omitempty"`
+	LinkLen2                     int                       `yaml:"LinkLen2,omitempty"`
+	LinkLen3                     int                       `yaml:"LinkLen3,omitempty"`
+	MaxKeyLen                    int                       `yaml:"MaxKeyLen,omitempty"`
+	MaxRequestSize               int64                     `yaml:"MaxRequestSize,omitempty"`
+	MaxTextSize                  int                       `yaml:"MaxTextSize,omitempty"`
+	MinSizeToGzip                int                       `yaml:"MinSizeToGzip,omitempty"`
+	FileUploadsEnabled           *bool                     `yaml:"FileUploadsEnabled,omitempty"`
+	RegistrationEnabled          *bool                     `yaml:"RegistrationEnabled,omitempty"`
+	AnonymousRateLimit           *AnonymousRateLimitConfig `yaml:"AnonymousRateLimit,omitempty"`
+	RateLimit1                   *RateLimitXYConfig        `yaml:"RateLimit1,omitempty"`
+	RateLimit2                   *RateLimitXYConfig        `yaml:"RateLimit2,omitempty"`
+	LinkLen1Timeout              string                    `yaml:"LinkLen1Timeout,omitempty"`
+	LinkLen1Display              string                    `yaml:"LinkLen1Display,omitempty"`
+	LinkLen2Timeout              string                    `yaml:"LinkLen2Timeout,omitempty"`
+	LinkLen2Display              string                    `yaml:"LinkLen2Display,omitempty"`
+	LinkLen3Timeout              string                    `yaml:"LinkLen3Timeout,omitempty"`
+	LinkLen3Display              string                    `yaml:"LinkLen3Display,omitempty"`
+	CustomTimeout                string                    `yaml:"CustomTimeout,omitempty"`
+	CustomDisplay                string                    `yaml:"CustomDisplay,omitempty"`
+	LinkAccessMaxNr              int                       `yaml:"LinkAccessMaxNr,omitempty"`
+	StaticLinks                  map[string]string         `yaml:"StaticLinks,omitempty"`
+	EnableForLogin               *bool                     `yaml:"EnableForLogin,omitempty"`
+	EnableForRegistration        *bool                     `yaml:"EnableForRegistration,omitempty"`
+	AbuseReportingCaptchaEnabled *bool                     `yaml:"AbuseReportingCaptchaEnabled,omitempty"`
 }
 
 // Link represents a shortened link record in the database.

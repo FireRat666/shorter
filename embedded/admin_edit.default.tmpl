@@ -120,9 +120,15 @@
                     <fieldset>
                         <legend>Features</legend>
                         <label for="FileUploadsEnabled">File Uploads Enabled:</label>
-                        <input type="checkbox" id="FileUploadsEnabled" name="FileUploadsEnabled" class="checkbox" {{if .Config.FileUploadsEnabled}}checked{{end}}>
+                        <input type="checkbox" id="FileUploadsEnabled" name="FileUploadsEnabled" class="checkbox" {{if derefBool .Config.FileUploadsEnabled}}checked{{end}}>
                         <label for="RegistrationEnabled">Registration Enabled:</label>
-                        <input type="checkbox" id="RegistrationEnabled" name="RegistrationEnabled" class="checkbox" {{if .Config.RegistrationEnabled}}checked{{end}}>
+                        <input type="checkbox" id="RegistrationEnabled" name="RegistrationEnabled" class="checkbox" {{if derefBool .Config.RegistrationEnabled}}checked{{end}}>
+                        <label for="EnableForLogin">Enable Captcha for Login:</label>
+                        <input type="checkbox" id="EnableForLogin" name="EnableForLogin" class="checkbox" {{if derefBool .Config.EnableForLogin}}checked{{end}}>
+                        <label for="EnableForRegistration">Enable Captcha for Registration:</label>
+                        <input type="checkbox" id="EnableForRegistration" name="EnableForRegistration" class="checkbox" {{if derefBool .Config.EnableForRegistration}}checked{{end}}>
+                        <label for="AbuseReportingCaptchaEnabled">Enable Captcha for Abuse Reporting:</label>
+                        <input type="checkbox" id="AbuseReportingCaptchaEnabled" name="AbuseReportingCaptchaEnabled" class="checkbox" {{if derefBool .Config.AbuseReportingCaptchaEnabled}}checked{{end}}>
                     </fieldset>
                 </div>
 
